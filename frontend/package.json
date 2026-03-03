@@ -1,0 +1,52 @@
+{
+  "name": "subtitle-editor",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron ./electron/main.cjs",
+    "electron:dev": "concurrently -k \"vite --host 127.0.0.1 --port 3000\" \"wait-on http-get://127.0.0.1:3000 && electron ./electron/main.cjs --dev\"",
+    "electron:build": "vite build && electron-builder",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0",
+    "pinia": "^2.1.7",
+    "element-plus": "^2.6.1",
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.6.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.1.6",
+    "sass": "^1.71.1",
+    "unplugin-vue-components": "^0.26.0",
+    "unplugin-auto-import": "^0.17.5",
+    "vue-tsc": "^2.0.6",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.subtitle.tool",
+    "productName": "Subtitle Tool",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

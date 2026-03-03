@@ -1,0 +1,16 @@
+Temp/
+Dictionaries/
+Spark-TTS/example/
+Spark-TTS/pretrained_models/
+*.pyc
+__pycache__/
+node_modules/
+dist/
+.venv/
+venv/
+*.egg-info/
+.idea/
+.vscode/
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,385 @@
+<template>
+  <div class="tts-panel">
+    <div class="tts-header">
+      <div class="header-left">
+        <h4>文本转语音</h4>
+        <el-tag v-if="modelInfo" size="small" :type="modelInfo.loaded ? 'success' : 'info'">
+          {{ modelInfo.loaded ? '模型可用' : '模型不可用' }}
+        </el-tag>
+      </div>
+      <div class="header-buttons">
+        <el-button size="small" @click="exportAudio" :disabled="!hasGeneratedAudio">
+          <el-icon><Headset /></el-icon>导出音频
+        </el-button>
+        <el-button size="small" @click="closeAudio" :disabled="!hasGeneratedAudio && !isOpenedAudioFile">
+          <el-icon><Close /></el-icon>关闭音频
+        </el-button>
+      </div>
+    </div>
+    
+    <el-form label-width="60px" size="small">
+      <el-form-item label="引擎">
+        <el-select v-model="ttsEngine" style="width: 100%">
+          <el-option label="Spark-TTS (本地)" value="spark" />
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item label="语音">
+        <el-select v-model="ttsVoice" style="width: 100%">
+          <el-option-group label="中文">
+            <el-option label="男声" value="male" />
+            <el-option label="女声" value="female" />
+          </el-option-group>
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item label="音高">
+        <el-select v-model="ttsPitch" style="width: 100%">
+          <el-option label="很低" value="very_low" />
+          <el-option label="低" value="low" />
+          <el-option label="适中" value="moderate" />
+          <el-option label="高" value="high" />
+          <el-option label="很高" value="very_high" />
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item label="语速">
+        <el-select v-model="ttsSpeed" style="width: 100%">
+          <el-option label="很慢" value="very_low" />
+          <el-option label="慢" value="low" />
+          <el-option label="适中" value="moderate" />
+          <el-option label="快" value="high" />
+          <el-option label="很快" value="very_high" />
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item>
+        <el-button 
+          type="primary" 
+          @click="generateSpeech" 
+          :loading="isGenerating"
+          :disabled="!canGenerate"
+        >
+          {{ isGenerating ? '生成中...' : '生成语音' }}
+        </el-button>
+        <el-button 
+          @click="importAudio"
+        >
+          导入音频
+        </el-button>
+        <input 
+          type="file" 
+          ref="audioInputRef" 
+          @change="handleAudioImport" 
+          accept="audio/*" 
+          style="display: none"
+        />
+      </el-form-item>
+      
+      <el-form-item v-if="isGenerating">
+        <p class="progress-text">{{ progressText }}</p>
+      </el-form-item>
+    </el-form>
+    
+    <audio ref="audioPlayer" v-if="generatedAudioUrl" :src="generatedAudioUrl" controls style="width: 100%; margin-top: 12px;"></audio>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useSubtitleStore } from '@/stores/subtitleStore'
+import { useRecentFilesStore, FILE_TYPES } from '@/stores/recentFilesStore'
+import axios from 'axios'
+import { getBackendBaseUrl } from '@/utils/runtime'
+
+const subtitleStore = useSubtitleStore()
+const recentFilesStore = useRecentFilesStore()
+
+const ttsEngine = ref('spark')
+const ttsVoice = ref('male')
+const ttsPitch = ref('moderate')
+const ttsSpeed = ref('moderate')
+const isGenerating = ref(false)
+const progressText = ref('')
+const generatedAudioUrl = ref('')
+const modelInfo = ref(null)
+const audioPlayer = ref(null)
+const audioInputRef = ref(null)
+let statusPollingInterval = null
+
+const hasGeneratedAudio = computed(() => !!generatedAudioUrl.value || !!subtitleStore.dubbingAudioFile)
+
+watch(() => subtitleStore.dubbingAudioFile, (newFile) => {
+  if (newFile && typeof newFile === 'string') {
+    const encodedPath = encodeURIComponent(newFile)
+    generatedAudioUrl.value = `${getBackendBaseUrl()}/api/video/serve?path=${encodedPath}`
+  }
+})
+
+const canGenerate = computed(() => {
+  return subtitleStore.paragraphCount > 0 && !isGenerating.value
+})
+
+function isAudioFile(file) {
+  if (!file) return false
+  const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.wma']
+  const fileName = (typeof file === 'string' ? file : file.name).toLowerCase()
+  return audioExtensions.some(ext => fileName.endsWith(ext)) || 
+         (typeof file !== 'string' && file.type && file.type.startsWith('audio/'))
+}
+
+const isOpenedAudioFile = computed(() => {
+  return subtitleStore.videoFile && isAudioFile(subtitleStore.videoFile)
+})
+
+onMounted(async () => {
+  await fetchModelInfo()
+})
+
+onUnmounted(() => {
+  stopStatusPolling()
+})
+
+async function fetchModelInfo() {
+  try {
+    const response = await axios.get('/api/tts/info')
+    if (response.data.success) {
+      modelInfo.value = response.data
+    }
+  } catch (error) {
+    console.error('Failed to fetch model info:', error)
+  }
+}
+
+async function generateSpeech() {
+  if (subtitleStore.paragraphCount === 0) {
+    ElMessage.warning('没有可用的字幕')
+    return
+  }
+  
+  isGenerating.value = true
+  progressText.value = '正在准备...'
+  
+  try {
+    const paragraphs = subtitleStore.currentSubtitle.paragraphs
+    const subtitles = paragraphs.map(p => ({
+      text: p.translation || p.text,
+      start_time: p.startTime.totalMilliseconds,
+      end_time: p.endTime.totalMilliseconds
+    }))
+    
+    progressText.value = '正在启动生成任务...'
+    
+    const response = await axios.post('/api/tts/generate-subtitles', {
+      subtitles: subtitles,
+      gender: ttsVoice.value,
+      pitch: ttsPitch.value,
+      speed: ttsSpeed.value
+    })
+    
+    if (response.data.success && response.data.status === 'started') {
+      progressText.value = '正在生成语音...'
+      startStatusPolling()
+    } else if (response.data.error) {
+      ElMessage.error('生成失败: ' + response.data.error)
+      isGenerating.value = false
+    }
+  } catch (error) {
+    ElMessage.error('生成语音失败: ' + (error.response?.data?.error || error.message))
+    isGenerating.value = false
+  }
+}
+
+function startStatusPolling() {
+  if (statusPollingInterval) {
+    clearInterval(statusPollingInterval)
+  }
+  
+  statusPollingInterval = setInterval(async () => {
+    try {
+      const response = await axios.get('/api/tts/status')
+      const status = response.data.status
+      
+      if (status.status === 'preparing') {
+        progressText.value = '正在准备...'
+      } else if (status.status === 'generating') {
+        progressText.value = '正在生成语音...'
+      } else if (status.status === 'completed') {
+        stopStatusPolling()
+        progressText.value = '正在获取结果...'
+        
+        try {
+          const resultResponse = await axios.get('/api/tts/result')
+          if (resultResponse.data.success) {
+            const outputPath = resultResponse.data.output_path
+            generatedAudioUrl.value = getBackendBaseUrl() + '/api/tts/download/' + encodeURIComponent(outputPath.split(/[/\\]/).pop()) + '?t=' + Date.now()
+            progressText.value = '生成完成'
+            ElMessage.success('语音生成成功')
+          } else {
+            ElMessage.error('获取结果失败')
+          }
+        } catch (e) {
+          ElMessage.error('获取结果失败: ' + e.message)
+        }
+        isGenerating.value = false
+      } else if (status.status === 'error') {
+        stopStatusPolling()
+        ElMessage.error('生成失败: ' + (status.error || '未知错误'))
+        isGenerating.value = false
+      } else if (status.status === 'aborted') {
+        stopStatusPolling()
+        ElMessage.info('生成已取消')
+        isGenerating.value = false
+      }
+    } catch (error) {
+      console.error('获取状态失败:', error)
+    }
+  }, 1000)
+}
+
+function stopStatusPolling() {
+  if (statusPollingInterval) {
+    clearInterval(statusPollingInterval)
+    statusPollingInterval = null
+  }
+}
+
+function previewAudio() {
+  if (audioPlayer.value) {
+    audioPlayer.value.play()
+  }
+}
+
+function importAudio() {
+  if (window.electronAPI) {
+    importAudioElectron()
+  } else if (audioInputRef.value) {
+    audioInputRef.value.click()
+  }
+}
+
+async function importAudioElectron() {
+  const result = await window.electronAPI.selectAudioFile()
+  if (result.success) {
+    subtitleStore.setDubbingAudioFile(result.filePath)
+    ElMessage.success(`已导入音频: ${result.fileName}`)
+    recentFilesStore.addRecentFile(result.filePath, result.fileName, FILE_TYPES.AUDIO)
+  }
+}
+
+function handleAudioImport(event) {
+  const file = event.target.files[0]
+  if (!file) return
+  
+  const validTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/m4a', 'audio/aac', 'audio/flac', 'audio/mp3']
+  const isValidType = validTypes.some(type => file.type === type) || file.name.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i)
+  
+  if (!isValidType) {
+    ElMessage.error('请选择有效的音频文件 (MP3, WAV, OGG, M4A, AAC, FLAC)')
+    return
+  }
+  
+  const url = URL.createObjectURL(file)
+  generatedAudioUrl.value = url
+  subtitleStore.setDubbingAudioFile(file)
+  ElMessage.success(`已导入音频: ${file.name}`)
+  
+  if (file.path) {
+    recentFilesStore.addRecentFile(file.path, file.name, FILE_TYPES.AUDIO)
+  }
+  
+  event.target.value = ''
+}
+
+function closeAudio() {
+  if (generatedAudioUrl.value) {
+    URL.revokeObjectURL(generatedAudioUrl.value)
+    generatedAudioUrl.value = ''
+    subtitleStore.setDubbingAudioFile(null)
+    ElMessage.success('已关闭音频')
+    return
+  }
+  
+  if (subtitleStore.videoFile && isAudioFile(subtitleStore.videoFile)) {
+    subtitleStore.setVideoFile(null)
+    subtitleStore.setVideoElement(null)
+    ElMessage.success('已关闭音频文件')
+    return
+  }
+  
+  ElMessage.info('当前没有打开的音频')
+}
+
+async function exportAudio() {
+  if (!generatedAudioUrl.value) {
+    ElMessage.warning('没有可导出的音频')
+    return
+  }
+  
+  try {
+    ElMessage.info('正在准备导出...')
+    
+    const response = await fetch(generatedAudioUrl.value)
+    const blob = await response.blob()
+    
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'dubbed_audio.wav'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    setTimeout(() => URL.revokeObjectURL(url), 100)
+    
+    ElMessage.success('音频导出成功')
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('音频导出失败: ' + error.message)
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.tts-panel {
+  flex: 1;
+  padding: 12px;
+  overflow: auto;
+
+  .tts-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      h4 {
+        margin: 0;
+        font-size: $font-size-lg;
+        color: $text-color;
+      }
+    }
+
+    .header-buttons {
+      display: flex;
+      gap: 8px;
+    }
+  }
+
+  .el-form-item {
+    margin-bottom: 12px;
+  }
+  
+  .progress-text {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #909399;
+    text-align: center;
+  }
+}
+</style>

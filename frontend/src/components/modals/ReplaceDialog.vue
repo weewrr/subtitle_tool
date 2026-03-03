@@ -1,0 +1,283 @@
+<template>
+  <el-dialog
+    v-model="visible"
+    title="替换"
+    width="450px"
+    :close-on-click-modal="false"
+    @close="handleClose"
+  >
+    <el-form label-width="80px" size="small">
+      <el-form-item label="查找内容">
+        <el-input
+          v-model="searchText"
+          placeholder="输入要查找的内容"
+          ref="searchInput"
+        />
+      </el-form-item>
+      <el-form-item label="替换为">
+        <el-input
+          v-model="replaceText"
+          placeholder="输入替换内容（留空则删除）"
+        />
+      </el-form-item>
+      <el-form-item label="查找类型">
+        <el-radio-group v-model="findType">
+          <el-radio value="normal">普通</el-radio>
+          <el-radio value="caseSensitive">区分大小写</el-radio>
+          <el-radio value="regex">正则表达式</el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item label="选项">
+        <el-checkbox v-model="wholeWord">全字匹配</el-checkbox>
+      </el-form-item>
+      <el-form-item label="搜索范围">
+        <el-checkbox v-model="searchOriginal">原始文本</el-checkbox>
+        <el-checkbox v-model="searchTranslation">翻译文本</el-checkbox>
+      </el-form-item>
+    </el-form>
+
+    <div v-if="resultInfo" class="result-info">
+      {{ resultInfo }}
+    </div>
+
+    <template #footer>
+      <el-button @click="findNext" :disabled="!searchText">查找下一个</el-button>
+      <el-button @click="replaceNext" :disabled="!searchText">替换</el-button>
+      <el-button type="primary" @click="replaceAll" :disabled="!searchText">全部替换</el-button>
+      <el-button @click="closeDialog">关闭</el-button>
+    </template>
+  </el-dialog>
+</template>
+
+<script setup>
+import { ref, computed, watch, nextTick } from 'vue'
+import { useUIStore } from '@/stores/uiStore'
+import { useSubtitleStore } from '@/stores/subtitleStore'
+import { ElMessage, ElMessageBox } from 'element-plus'
+
+const uiStore = useUIStore()
+const subtitleStore = useSubtitleStore()
+
+const searchInput = ref(null)
+const searchText = ref('')
+const replaceText = ref('')
+const findType = ref('normal')
+const wholeWord = ref(false)
+const searchOriginal = ref(true)
+const searchTranslation = ref(true)
+const resultInfo = ref('')
+const lastIndex = ref(-1)
+const lastMatch = ref(null)
+
+const visible = computed({
+  get: () => uiStore.replaceDialogVisible,
+  set: (value) => {
+    if (!value) {
+      uiStore.hideReplaceDialog()
+    }
+  }
+})
+
+watch(visible, (val) => {
+  if (val) {
+    nextTick(() => {
+      searchInput.value?.focus()
+    })
+  }
+})
+
+function buildSearchRegex() {
+  let pattern = searchText.value
+  let flags = 'g'
+  
+  if (findType.value === 'normal') {
+    pattern = escapeRegex(pattern)
+    flags += 'i'
+  } else if (findType.value === 'caseSensitive') {
+    pattern = escapeRegex(pattern)
+  }
+  
+  if (wholeWord.value && findType.value !== 'regex') {
+    pattern = `\\b${pattern}\\b`
+  }
+  
+  try {
+    return new RegExp(pattern, flags)
+  } catch (e) {
+    return null
+  }
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function findNext() {
+  if (!searchText.value) return
+  
+  const regex = buildSearchRegex()
+  if (!regex) {
+    ElMessage.error('无效的正则表达式')
+    return
+  }
+  
+  const paragraphs = subtitleStore.currentSubtitle.paragraphs
+  if (paragraphs.length === 0) {
+    ElMessage.info('没有可搜索的字幕')
+    return
+  }
+  
+  let found = false
+  let startIndex = lastIndex.value < 0 ? 0 : lastIndex.value + 1
+  
+  for (let i = 0; i < paragraphs.length; i++) {
+    const idx = (startIndex + i) % paragraphs.length
+    const p = paragraphs[idx]
+    
+    if (searchOriginal.value) {
+      regex.lastIndex = 0
+      const match = regex.exec(p.text)
+      if (match) {
+        subtitleStore.selectParagraph(idx)
+        lastIndex.value = idx
+        lastMatch.value = { index: idx, field: 'text', match: match[0] }
+        resultInfo.value = `找到第 ${idx + 1} 条字幕原始文本: "${match[0]}"`
+        found = true
+        break
+      }
+    }
+    
+    if (searchTranslation.value && p.translation) {
+      regex.lastIndex = 0
+      const match = regex.exec(p.translation)
+      if (match) {
+        subtitleStore.selectParagraph(idx)
+        lastIndex.value = idx
+        lastMatch.value = { index: idx, field: 'translation', match: match[0] }
+        resultInfo.value = `找到第 ${idx + 1} 条字幕翻译文本: "${match[0]}"`
+        found = true
+        break
+      }
+    }
+  }
+  
+  if (!found) {
+    ElMessage.info('未找到匹配内容')
+    lastIndex.value = -1
+    lastMatch.value = null
+  }
+}
+
+function replaceNext() {
+  if (!lastMatch.value) {
+    findNext()
+    return
+  }
+  
+  const { index, field, match } = lastMatch.value
+  const p = subtitleStore.currentSubtitle.paragraphs[index]
+  
+  let newText
+  if (findType.value === 'regex') {
+    const regex = new RegExp(searchText.value, 'g')
+    newText = p[field].replace(regex, replaceText.value)
+  } else {
+    const regex = buildSearchRegex()
+    newText = p[field].replace(regex, replaceText.value)
+  }
+  
+  if (field === 'text') {
+    subtitleStore.updateParagraphText(index, newText)
+  } else {
+    subtitleStore.updateParagraphTranslation(index, newText)
+  }
+  
+  resultInfo.value = `已替换第 ${index + 1} 条字幕`
+  lastMatch.value = null
+  findNext()
+}
+
+async function replaceAll() {
+  if (!searchText.value) return
+  
+  const regex = buildSearchRegex()
+  if (!regex) {
+    ElMessage.error('无效的正则表达式')
+    return
+  }
+  
+  const paragraphs = subtitleStore.currentSubtitle.paragraphs
+  if (paragraphs.length === 0) {
+    ElMessage.info('没有可搜索的字幕')
+    return
+  }
+  
+  let count = 0
+  
+  for (let i = 0; i < paragraphs.length; i++) {
+    const p = paragraphs[i]
+    let modified = false
+    
+    if (searchOriginal.value) {
+      regex.lastIndex = 0
+      if (regex.test(p.text)) {
+        let newText
+        if (findType.value === 'regex') {
+          const re = new RegExp(searchText.value, 'g')
+          newText = p.text.replace(re, replaceText.value)
+        } else {
+          const re = buildSearchRegex()
+          newText = p.text.replace(re, replaceText.value)
+        }
+        subtitleStore.updateParagraphText(i, newText)
+        count++
+        modified = true
+      }
+    }
+    
+    if (searchTranslation.value && p.translation) {
+      regex.lastIndex = 0
+      if (regex.test(p.translation)) {
+        let newText
+        if (findType.value === 'regex') {
+          const re = new RegExp(searchText.value, 'g')
+          newText = p.translation.replace(re, replaceText.value)
+        } else {
+          const re = buildSearchRegex()
+          newText = p.translation.replace(re, replaceText.value)
+        }
+        subtitleStore.updateParagraphTranslation(i, newText)
+        count++
+        modified = true
+      }
+    }
+  }
+  
+  ElMessage.success(`已替换 ${count} 处`)
+  resultInfo.value = `共替换 ${count} 处`
+}
+
+function closeDialog() {
+  uiStore.hideReplaceDialog()
+}
+
+function handleClose() {
+  resultInfo.value = ''
+  lastIndex.value = -1
+  lastMatch.value = null
+}
+</script>
+
+<style lang="scss" scoped>
+.result-info {
+  margin-top: 12px;
+  padding: 8px;
+  background-color: $bg-color;
+  border-radius: 4px;
+  font-size: $font-size-sm;
+}
+
+:deep(.el-checkbox) {
+  margin-right: 16px;
+}
+</style>
