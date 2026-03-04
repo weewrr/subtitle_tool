@@ -170,7 +170,7 @@
     <template #footer>
       <div class="dialog-footer">
         <el-button @click="handleClose" :disabled="isProcessing">取消</el-button>
-        <el-button type="primary" @click="handleGenerate" :loading="isProcessing" :disabled="!videoFile">
+        <el-button type="primary" @click="handleGenerate" :loading="isProcessing" :disabled="!videoFile || subtitleStore.paragraphCount === 0">
           {{ isProcessing ? (canStop ? '停止' : '处理中...') : '确定' }}
         </el-button>
       </div>

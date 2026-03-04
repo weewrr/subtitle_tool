@@ -9,25 +9,6 @@ from backend.utils.temp_dir import get_transcription_temp_dir
 transcription_bp = Blueprint('transcription', __name__, url_prefix='/api/transcribe')
 transcription_service = TranscriptionService()
 
-@transcription_bp.route('/start', methods=['POST'])
-def start_transcribe():
-    data = request.get_json()
-    video_path = data.get('video_path')
-    model_name = data.get('model', 'base')
-    language = data.get('language', None)
-    
-    if not video_path:
-        return jsonify({'error': '请提供视频路径'}), 400
-    
-    if not os.path.exists(video_path):
-        return jsonify({'error': f'文件不存在: {video_path}'}), 400
-    
-    result = transcription_service.transcribe_async(video_path, model_name, language)
-    
-    if 'error' in result:
-        return jsonify(result), 400
-    return jsonify(result)
-
 @transcription_bp.route('/status', methods=['GET'])
 def get_transcribe_status():
     return jsonify(transcription_service.get_status())
@@ -48,16 +29,18 @@ def transcribe_upload():
     model_name = request.form.get('model', 'base')
     language = request.form.get('language', None)
     engine = request.form.get('engine', 'openai')
+    use_gpu = request.form.get('use_gpu', 'true').lower() == 'true'
     
     ext = os.path.splitext(upload_file.filename)[1].lower()
-    tmp_path = os.path.join(get_transcription_temp_dir(), f"{uuid.uuid4()}{ext}")
+    temp_dir = get_transcription_temp_dir()
+    tmp_path = os.path.join(temp_dir, f"{uuid.uuid4()}{ext}")
+    
+    os.makedirs(temp_dir, exist_ok=True)
     upload_file.save(tmp_path)
     
-    transcription_service.transcribe_async(tmp_path, model_name, language, engine)
+    if not os.path.exists(tmp_path):
+        return jsonify({'error': '文件保存失败'}), 500
+    
+    transcription_service.transcribe_async(tmp_path, model_name, language, engine, use_gpu)
     
     return jsonify({'status': 'started', 'message': '转录任务已启动'})
-
-@transcription_bp.route('/abort', methods=['POST'])
-def abort_transcribe():
-    transcription_service.abort()
-    return jsonify({'status': 'aborted'})

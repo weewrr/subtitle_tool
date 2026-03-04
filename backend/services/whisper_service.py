@@ -94,7 +94,7 @@ class WhisperModelService:
             import threading
             import time
             
-            cache_dir = os.path.expanduser('~/.cache/whisper')
+            cache_dir = Config.WHISPER_CACHE_DIR
             os.makedirs(cache_dir, exist_ok=True)
             model_path = os.path.join(cache_dir, f'{model_name}.pt')
             
@@ -107,7 +107,6 @@ class WhisperModelService:
                     return
                 else:
                     os.remove(model_path)
-                    print(f"删除损坏的文件: {model_path}")
             
             model_sizes = {
                 'tiny': 75_000_000,
@@ -118,7 +117,6 @@ class WhisperModelService:
             }
             expected_size = model_sizes.get(model_name, 500_000_000)
             
-            print(f"开始下载模型: {model_name}")
             self.download_status['status'] = 'downloading'
             self.download_status['progress'] = 5
             
@@ -149,15 +147,10 @@ class WhisperModelService:
             if download_error[0]:
                 raise Exception(download_error[0])
             
-            if os.path.exists(model_path):
-                actual_size = os.path.getsize(model_path)
-                print(f"模型下载完成: {model_path} ({actual_size} bytes)")
-            
             self.download_status['progress'] = 100
             self.download_status['status'] = 'completed'
             self.download_status['downloading'] = False
         except Exception as e:
-            print(f"下载失败: {str(e)}")
             self.download_status['status'] = 'error'
             self.download_status['error'] = str(e)
             self.download_status['downloading'] = False

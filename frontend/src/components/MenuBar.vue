@@ -83,7 +83,7 @@
         <el-menu-item index="generateWaveform" @click="generateWaveform">
           <el-icon><DataLine /></el-icon>批量生成波形
         </el-menu-item>
-        <el-menu-item index="embedHardSubtitles" @click="embedHardSubtitles">
+        <el-menu-item index="embedHardSubtitles" @click="embedHardSubtitles" :disabled="!subtitleStore.videoFile || subtitleStore.paragraphCount === 0">
           <el-icon><Film /></el-icon>生成带硬字幕的视频
         </el-menu-item>
         <el-menu-item index="speechRecognition" @click="showSpeechRecognition">

@@ -5,6 +5,7 @@ export const useUIStore = defineStore('ui', () => {
   const speechRecognitionModalVisible = ref(false)
   const batchProcessingModalVisible = ref(false)
   const modelDownloadModalVisible = ref(false)
+  const currentEngine = ref('openai')
   const translateModalVisible = ref(false)
   const translateAdvancedModalVisible = ref(false)
   const confirmDialogVisible = ref(false)
@@ -47,6 +48,8 @@ export const useUIStore = defineStore('ui', () => {
     onAction: null
   })
 
+  const spellCheckAdvancedModalVisible = ref(false)
+
   const findDuplicateWordsVisible = ref(false)
   const findDuplicateWordsConfig = ref({
     onFind: null
@@ -80,7 +83,8 @@ export const useUIStore = defineStore('ui', () => {
     batchProcessingModalVisible.value = false
   }
 
-  function showModelDownloadModal() {
+  function showModelDownloadModal(engine = 'openai') {
+    currentEngine.value = engine
     modelDownloadModalVisible.value = true
   }
 
@@ -186,6 +190,14 @@ export const useUIStore = defineStore('ui', () => {
     spellCheckDialogVisible.value = false
   }
 
+  function showSpellCheckAdvancedModal() {
+    spellCheckAdvancedModalVisible.value = true
+  }
+
+  function hideSpellCheckAdvancedModal() {
+    spellCheckAdvancedModalVisible.value = false
+  }
+
   function showFindDuplicateWordsDialog(config = {}) {
     findDuplicateWordsConfig.value = {
       onFind: config.onFind || null
@@ -244,6 +256,7 @@ export const useUIStore = defineStore('ui', () => {
     speechRecognitionModalVisible,
     batchProcessingModalVisible,
     modelDownloadModalVisible,
+    currentEngine,
     translateModalVisible,
     translateAdvancedModalVisible,
     confirmDialogVisible,
@@ -260,6 +273,7 @@ export const useUIStore = defineStore('ui', () => {
     goToLineDialogConfig,
     spellCheckDialogVisible,
     spellCheckDialogConfig,
+    spellCheckAdvancedModalVisible,
     findDuplicateWordsVisible,
     findDuplicateWordsConfig,
     findDuplicateLinesVisible,
@@ -292,6 +306,8 @@ export const useUIStore = defineStore('ui', () => {
     hideGoToLineDialog,
     showSpellCheckDialog,
     hideSpellCheckDialog,
+    showSpellCheckAdvancedModal,
+    hideSpellCheckAdvancedModal,
     showFindDuplicateWordsDialog,
     hideFindDuplicateWordsDialog,
     showFindDuplicateLinesDialog,

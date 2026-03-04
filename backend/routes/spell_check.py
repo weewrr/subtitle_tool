@@ -24,6 +24,7 @@ def ai_spell_check():
     text = data.get('text', '')
     engine = data.get('engine', 'ollama')
     model = data.get('model', 'gemma3:1b')
+    prompt_template = data.get('prompt_template', None)
     
     if not text:
         return jsonify({'error': '请提供要检查的文本'}), 400
@@ -34,7 +35,8 @@ def ai_spell_check():
         to_lang='',
         engine=engine,
         model=model,
-        task='spell_check'
+        task='spell_check',
+        prompt_template=prompt_template
     )
     
     if result.get('error'):

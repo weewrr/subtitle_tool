@@ -27,6 +27,36 @@ export class ApiService {
     return response.data
   }
 
+  async listWhisperCppModels() {
+    const response = await api.get('/models/whisper-cpp/list')
+    return response.data
+  }
+
+  async downloadWhisperCppModel(modelName) {
+    const response = await api.post('/models/whisper-cpp/download', { model: modelName })
+    return response.data
+  }
+
+  async getWhisperCppModelStatus() {
+    const response = await api.get('/models/whisper-cpp/status')
+    return response.data
+  }
+
+  async listWhisperCTranslate2Models() {
+    const response = await api.get('/models/whisper-ctranslate2/list')
+    return response.data
+  }
+
+  async downloadWhisperCTranslate2Model(modelName) {
+    const response = await api.post('/models/whisper-ctranslate2/download', { model: modelName })
+    return response.data
+  }
+
+  async getWhisperCTranslate2ModelStatus() {
+    const response = await api.get('/models/whisper-ctranslate2/status')
+    return response.data
+  }
+
   async listVoskModels() {
     const response = await api.get('/models/vosk/list')
     return response.data

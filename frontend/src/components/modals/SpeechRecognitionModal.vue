@@ -4,6 +4,9 @@
     title="音频转文字"
     width="600px"
     :close-on-click-modal="false"
+    :close-on-press-escape="false"
+    :show-close="!isTranscribing"
+    :before-close="handleBeforeClose"
   >
     <p class="description">通过 Whisper 语音识别从音频生成文本</p>
     
@@ -41,16 +44,16 @@
       </el-form-item>
     </el-form>
 
-    <el-checkbox v-model="usePostProcessing">使用后处理 (合并、修复大小写、标点符号等)</el-checkbox>
+    <el-checkbox v-model="useGpu">GPU加速</el-checkbox>
 
     <div v-if="isTranscribing" class="progress-section">
       <p class="progress-text">{{ progressText }}</p>
     </div>
 
     <template #footer>
-      <el-button @click="showBatchMode">批处理模式</el-button>
-      <el-button type="primary" @click="startTranscribe" :loading="isTranscribing">生成</el-button>
-      <el-button @click="close">取消(A)</el-button>
+      <el-button @click="showBatchMode" :disabled="isTranscribing">批处理模式</el-button>
+      <el-button type="primary" @click="startTranscribe" :loading="isTranscribing" :disabled="isTranscribing">生成</el-button>
+      <el-button @click="close" :disabled="isTranscribing">取消</el-button>
     </template>
   </el-dialog>
 </template>
@@ -75,7 +78,7 @@ const engine = ref('openai')
 const language = ref('Auto-detect')
 const selectedModel = ref('base')
 const models = ref([])
-const usePostProcessing = ref(true)
+const useGpu = ref(true)
 const isTranscribing = ref(false)
 const progressText = ref('准备中...')
 let statusPollingInterval = null
@@ -97,6 +100,18 @@ async function loadModels() {
     if (engine.value === 'vosk') {
       const voskModels = await apiService.listVoskModels()
       modelList = voskModels.map(m => ({ name: m.code, label: m.name }))
+    } else if (engine.value === 'whisper-cpp') {
+      const whisperCppModels = await apiService.listWhisperCppModels()
+      modelList = whisperCppModels.map(m => ({
+        name: m.name,
+        label: m.name + ' (' + m.size + ')' + (m.downloaded ? ' ✓' : '')
+      }))
+    } else if (engine.value === 'whisper-ctranslate2') {
+      const whisperCt2Models = await apiService.listWhisperCTranslate2Models()
+      modelList = whisperCt2Models.map(m => ({
+        name: m.name,
+        label: m.name + ' (' + m.size + ')' + (m.downloaded ? ' ✓' : '')
+      }))
     } else {
       const whisperModels = await apiService.listModels()
       modelList = whisperModels.map(m => ({
@@ -117,7 +132,7 @@ async function loadModels() {
 
 function showDownloadModal() {
   uiStore.hideSpeechRecognitionModal()
-  uiStore.showModelDownloadModal()
+  uiStore.showModelDownloadModal(engine.value)
 }
 
 async function openModelFolder() {
@@ -132,6 +147,7 @@ async function openModelFolder() {
 }
 
 function showBatchMode() {
+  if (isTranscribing.value) return
   uiStore.hideSpeechRecognitionModal()
   uiStore.showBatchProcessingModal()
 }
@@ -150,6 +166,7 @@ async function startTranscribe() {
     formData.append('file', subtitleStore.videoFile)
     formData.append('model', selectedModel.value)
     formData.append('engine', engine.value)
+    formData.append('use_gpu', useGpu.value ? 'true' : 'false')
     if (language.value && language.value !== 'Auto-detect') {
       formData.append('language', language.value.toLowerCase())
     }
@@ -207,11 +224,12 @@ function startStatusPolling() {
             close()
           } else {
             ElMessage.warning('未识别到语音内容')
+            isTranscribing.value = false
           }
         } catch (e) {
           ElMessage.error('获取结果失败: ' + e.message)
+          isTranscribing.value = false
         }
-        isTranscribing.value = false
       } else if (status.status === 'error') {
         stopStatusPolling()
         ElMessage.error('识别失败: ' + (status.error || '未知错误'))
@@ -228,6 +246,14 @@ function stopStatusPolling() {
     clearInterval(statusPollingInterval)
     statusPollingInterval = null
   }
+}
+
+function handleBeforeClose(done) {
+  if (isTranscribing.value) {
+    ElMessage.warning('正在转录中，请等待完成后再关闭')
+    return
+  }
+  done()
 }
 
 function close() {

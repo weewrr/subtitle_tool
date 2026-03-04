@@ -1,12 +1,12 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="下载 OpenAI Whisper 模型"
+    :title="modalTitle"
     width="500px"
     :close-on-click-modal="false"
     @close="handleClose"
   >
-    <p class="description">选择要下载的 Whisper 模型：</p>
+    <p class="description">选择要下载的模型：<el-tag size="small" type="warning" style="margin-left: 8px">科学上网</el-tag></p>
 
     <el-radio-group v-model="selectedModel" class="model-list">
       <el-radio 
@@ -51,6 +51,7 @@ const visible = computed({
   set: (value) => value ? uiStore.showModelDownloadModal() : uiStore.hideModelDownloadModal()
 })
 
+const selectedEngine = computed(() => uiStore.currentEngine)
 const selectedModel = ref('small')
 const isDownloading = ref(false)
 const progress = ref(0)
@@ -58,24 +59,74 @@ const progressText = ref('准备下载...')
 const progressStatus = ref('')
 const downloadedModels = ref([])
 
-const modelList = [
-  { name: 'tiny', size: '~75 MB', desc: '最快，准确度较低' },
-  { name: 'base', size: '~142 MB', desc: '快速，准确度一般' },
-  { name: 'small', size: '~466 MB', desc: '平衡速度和准确度' },
-  { name: 'medium', size: '~1.5 GB', desc: '较慢，准确度较高' },
-  { name: 'large', size: '~2.9 GB', desc: '最慢，准确度最高' }
-]
+const modalTitle = computed(() => {
+  if (selectedEngine.value === 'openai') {
+    return '下载 OpenAI Whisper 模型'
+  } else if (selectedEngine.value === 'whisper-cpp') {
+    return '下载 Whisper.cpp 模型'
+  } else if (selectedEngine.value === 'whisper-ctranslate2') {
+    return '下载 Whisper-CTranslate2 模型'
+  }
+  return '下载模型'
+})
+
+const modelList = computed(() => {
+  if (selectedEngine.value === 'openai') {
+    return [
+      { name: 'tiny', size: '~75 MB', desc: '最快，准确度较低' },
+      { name: 'base', size: '~142 MB', desc: '快速，准确度一般' },
+      { name: 'small', size: '~466 MB', desc: '平衡速度和准确度' },
+      { name: 'medium', size: '~1.5 GB', desc: '较慢，准确度较高' },
+      { name: 'large', size: '~2.9 GB', desc: '最慢，准确度最高' }
+    ]
+  } else if (selectedEngine.value === 'whisper-cpp') {
+    return [
+      { name: 'ggml-tiny.en', size: '~14 MB', desc: '英文专用，最快，准确度较低' },
+      { name: 'ggml-tiny', size: '~39 MB', desc: '多语言，最快，准确度较低' },
+      { name: 'ggml-base.en', size: '~29 MB', desc: '英文专用，快速，准确度一般' },
+      { name: 'ggml-base', size: '~74 MB', desc: '多语言，快速，准确度一般' },
+      { name: 'ggml-small.en', size: '~96 MB', desc: '英文专用，平衡速度和准确度' },
+      { name: 'ggml-small', size: '~244 MB', desc: '多语言，平衡速度和准确度' },
+      { name: 'ggml-medium.en', size: '~482 MB', desc: '英文专用，较慢，准确度较高' },
+      { name: 'ggml-medium', size: '~1.5 GB', desc: '多语言，较慢，准确度较高' },
+      { name: 'ggml-large-v3', size: '~2.9 GB', desc: '多语言，最慢，准确度最高' }
+    ]
+  } else if (selectedEngine.value === 'whisper-ctranslate2') {
+    return [
+      { name: 'tiny', size: '~39 MB', desc: '最快，准确度较低' },
+      { name: 'base', size: '~74 MB', desc: '快速，准确度一般' },
+      { name: 'small', size: '~244 MB', desc: '平衡速度和准确度' },
+      { name: 'medium', size: '~1.5 GB', desc: '较慢，准确度较高' },
+      { name: 'large-v1', size: '~2.9 GB', desc: '慢，准确度高' },
+      { name: 'large-v2', size: '~2.9 GB', desc: '慢，准确度高' },
+      { name: 'large-v3', size: '~2.9 GB', desc: '最慢，准确度最高' }
+    ]
+  }
+  return []
+})
 
 watch(visible, async (val) => {
   if (val) {
-    await loadDownloadedModels()
+    await loadModels()
   }
 })
 
-async function loadDownloadedModels() {
+async function loadModels() {
   try {
-    const models = await apiService.listModels()
-    downloadedModels.value = models.filter(m => m.downloaded).map(m => m.name)
+    if (selectedEngine.value === 'openai') {
+      const models = await apiService.listModels()
+      downloadedModels.value = models.filter(m => m.downloaded).map(m => m.name)
+    } else if (selectedEngine.value === 'whisper-cpp') {
+      const models = await apiService.listWhisperCppModels()
+      downloadedModels.value = models.filter(m => m.downloaded).map(m => m.name)
+    } else if (selectedEngine.value === 'whisper-ctranslate2') {
+      const models = await apiService.listWhisperCTranslate2Models()
+      downloadedModels.value = models.filter(m => m.downloaded).map(m => m.name)
+    }
+    // 重置选中的模型
+    if (modelList.value.length > 0) {
+      selectedModel.value = modelList.value[0].name
+    }
   } catch (error) {
     console.error('加载模型列表失败:', error)
   }
@@ -93,11 +144,24 @@ async function startDownload() {
   progressStatus.value = ''
 
   try {
-    await apiService.downloadModel(selectedModel.value)
+    if (selectedEngine.value === 'openai') {
+      await apiService.downloadModel(selectedModel.value)
+    } else if (selectedEngine.value === 'whisper-cpp') {
+      await apiService.downloadWhisperCppModel(selectedModel.value)
+    } else if (selectedEngine.value === 'whisper-ctranslate2') {
+      await apiService.downloadWhisperCTranslate2Model(selectedModel.value)
+    }
 
     const statusInterval = setInterval(async () => {
       try {
-        const status = await apiService.getModelStatus()
+        let status
+        if (selectedEngine.value === 'openai') {
+          status = await apiService.getModelStatus()
+        } else if (selectedEngine.value === 'whisper-cpp') {
+          status = await apiService.getWhisperCppModelStatus()
+        } else if (selectedEngine.value === 'whisper-ctranslate2') {
+          status = await apiService.getWhisperCTranslate2ModelStatus()
+        }
         progress.value = status.progress || 0
         progressText.value = getDownloadStatusText(status.status)
 
@@ -109,7 +173,7 @@ async function startDownload() {
             progressStatus.value = 'exception'
           } else if (status.status === 'completed') {
             ElMessage.success(`${selectedModel.value} 模型下载完成`)
-            await loadDownloadedModels()
+            await loadModels()
             progressStatus.value = 'success'
           }
           isDownloading.value = false

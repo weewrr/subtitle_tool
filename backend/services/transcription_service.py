@@ -25,7 +25,6 @@ class TranscriptionService:
         try:
             import whisper
         except ImportError:
-            print("正在安装 openai-whisper...")
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'openai-whisper', '-q'])
             import whisper
         return whisper
@@ -35,14 +34,13 @@ class TranscriptionService:
         try:
             import ffmpeg
         except ImportError:
-            print("正在安装 ffmpeg-python...")
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ffmpeg-python', '-q'])
             import ffmpeg
         return ffmpeg
 
     def _extract_audio(self, video_path, audio_path):
         """从视频提取音频（优化参数，确保和 Whisper 兼容）"""
-        ffmpeg = self._ensure_ffmpeg_installed()
+        import subprocess
         
         if not os.path.exists(video_path):
             raise FileNotFoundError(f"视频文件不存在：{video_path}")
@@ -51,79 +49,67 @@ class TranscriptionService:
         if ext not in Config.SUPPORTED_VIDEO_FORMATS and ext not in Config.SUPPORTED_AUDIO_FORMATS:
             raise ValueError(f"不支持的格式：{ext}")
         
+        output_dir = os.path.dirname(audio_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-i', video_path,
+            '-vn',
+            '-acodec', 'pcm_s16le',
+            '-ac', '1',
+            '-ar', '16000',
+            audio_path
+        ]
+        
         try:
-            (
-                ffmpeg
-                .input(video_path)
-                .output(
-                    audio_path,
-                    format='wav',
-                    acodec='pcm_s16le',
-                    ac=1,
-                    ar=16000,
-                    loglevel='error'
-                )
-                .overwrite_output()
-                .run(quiet=True)
-            )
-            print(f"音频提取完成：{audio_path}")
-        except ffmpeg.Error as e:
-            raise RuntimeError(f"音频提取失败：{e.stderr.decode('utf-8') if e.stderr else str(e)}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                error_msg = result.stderr if result.stderr else "未知错误"
+                raise RuntimeError(f"音频提取失败：{error_msg}")
+            
+            if not os.path.exists(audio_path):
+                raise RuntimeError("音频文件未生成")
+                
+        except FileNotFoundError:
+            raise RuntimeError("FFmpeg 未安装或不在 PATH 中")
         except Exception as e:
             raise RuntimeError(f"音频提取异常：{str(e)}")
 
-    def transcribe_file(self, file_path, model_name='base', language=None, engine='openai'):
+    def transcribe_file(self, file_path, model_name='base', language=None, engine='openai', use_gpu=True):
         """转录文件（同步）"""
         if engine == 'openai':
-            return self._transcribe_with_openai(file_path, model_name, language)
+            return self._transcribe_with_openai(file_path, model_name, language, use_gpu)
+        elif engine == 'whisper-cpp':
+            return self._transcribe_with_whisper_cpp(file_path, model_name, language)
+        elif engine == 'whisper-ctranslate2':
+            return self._transcribe_with_whisper_ctranslate2(file_path, model_name, language, use_gpu)
         elif engine == 'vosk':
             from backend.services.vosk_service import VoskService
             vosk_service = VoskService()
-            # 映射语言到 Vosk 模型代码
             language_map = {
-                'en': 'en',
-                'zh': 'cn',
-                'fr': 'fr',
-                'es': 'es',
-                'de': 'de',
-                'pt': 'pt',
-                'it': 'it',
-                'nl': 'nl',
-                'sv': 'sv',
-                'ru': 'ru',
-                'fa': 'fa',
-                'tr': 'tr',
-                'el': 'el',
-                'ar': 'ar',
-                'uk': 'uk',
-                'uz': 'uz',
-                'ph': 'ph',
-                'kz': 'kz',
-                'jp': 'jp',
-                'ca': 'ca',
-                'hi': 'hi',
-                'cz': 'cz',
-                'pl': 'pl',
-                'br': 'br'
+                'en': 'en', 'zh': 'cn', 'fr': 'fr', 'es': 'es', 'de': 'de',
+                'pt': 'pt', 'it': 'it', 'nl': 'nl', 'sv': 'sv', 'ru': 'ru',
+                'fa': 'fa', 'tr': 'tr', 'el': 'el', 'ar': 'ar', 'uk': 'uk',
+                'uz': 'uz', 'ph': 'ph', 'kz': 'kz', 'jp': 'jp', 'ca': 'ca',
+                'hi': 'hi', 'cz': 'cz', 'pl': 'pl', 'br': 'br'
             }
             model_code = language_map.get(language.lower() if language else 'zh', 'cn')
-            
-            # 更新状态为转录中
             self.transcribe_status['status'] = 'transcribing'
-            
             return vosk_service.transcribe_with_vosk(file_path, model_code, self.transcribe_status)
         else:
-            # 其他引擎的实现可以在这里添加
-            return self._transcribe_with_openai(file_path, model_name, language)
+            return self._transcribe_with_openai(file_path, model_name, language, use_gpu)
 
-    def _transcribe_with_openai(self, file_path, model_name='base', language=None):
+    def _transcribe_with_openai(self, file_path, model_name='base', language=None, use_gpu=True):
         """使用 OpenAI Whisper 转录"""
         import torch
         whisper = self._ensure_whisper_installed()
         
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"加载 Whisper 模型：{model_name}，设备：{device}")
-        model = whisper.load_model(model_name, device=device)
+        device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
+        model = whisper.load_model(model_name, device=device, download_root=Config.WHISPER_CACHE_DIR)
         
         if is_audio_file(file_path):
             audio_path = file_path
@@ -135,24 +121,16 @@ class TranscriptionService:
             audio_path = temp_audio_path
         
         try:
-            print("正在识别音频并生成时间轴...")
             self.transcribe_status['status'] = 'transcribing'
             
             lang_code = None
             if language and language.lower() != 'auto-detect':
                 lang_map = {
-                    'english': 'en',
-                    'chinese': 'zh',
-                    'japanese': 'ja',
-                    'korean': 'ko',
-                    'en': 'en',
-                    'zh': 'zh',
-                    'ja': 'ja',
-                    'ko': 'ko'
+                    'english': 'en', 'chinese': 'zh', 'japanese': 'ja', 'korean': 'ko',
+                    'en': 'en', 'zh': 'zh', 'ja': 'ja', 'ko': 'ko'
                 }
                 lang_code = lang_map.get(language.lower(), language.lower())
             
-            # 优化转录参数
             result = model.transcribe(
                 audio_path,
                 language=lang_code,
@@ -165,7 +143,6 @@ class TranscriptionService:
                 patience=1.0
             )
             
-            # 改进时间轴
             segments = self._improve_timestamps(result.get('segments', []))
             result['segments'] = segments
             
@@ -173,45 +150,146 @@ class TranscriptionService:
         finally:
             if temp_audio_path and os.path.exists(temp_audio_path):
                 os.unlink(temp_audio_path)
-                print("临时音频文件已删除")
+
+    def _transcribe_with_whisper_cpp(self, file_path, model_name='ggml-base', language=None):
+        """使用 Whisper.cpp 转录"""
+        from backend.services.whisper_cpp_service import WhisperCppService
+        whisper_cpp_service = WhisperCppService()
+        
+        if is_audio_file(file_path):
+            audio_path = file_path
+            temp_audio_path = None
+        else:
+            import uuid
+            temp_audio_path = os.path.join(get_transcription_temp_dir(), f"{uuid.uuid4()}.wav")
+            self._extract_audio(file_path, temp_audio_path)
+            audio_path = temp_audio_path
+        
+        try:
+            self.transcribe_status['status'] = 'transcribing'
+            
+            lang_code = None
+            if language and language.lower() != 'auto-detect':
+                lang_map = {
+                    'english': 'en', 'chinese': 'zh', 'japanese': 'ja', 'korean': 'ko',
+                    'en': 'en', 'zh': 'zh', 'ja': 'ja', 'ko': 'ko'
+                }
+                lang_code = lang_map.get(language.lower(), language.lower())
+            
+            result = whisper_cpp_service.transcribe(audio_path, model_name, lang_code)
+            return self._parse_srt(result['srt'])
+        finally:
+            if temp_audio_path and os.path.exists(temp_audio_path):
+                os.unlink(temp_audio_path)
+
+    def _transcribe_with_whisper_ctranslate2(self, file_path, model_name='base', language=None, use_gpu=True):
+        """使用 Whisper-CTranslate2 转录"""
+        from backend.services.whisper_ctranslate2_service import WhisperCTranslate2Service
+        whisper_ct2_service = WhisperCTranslate2Service()
+        
+        if is_audio_file(file_path):
+            audio_path = file_path
+            temp_audio_path = None
+        else:
+            import uuid
+            temp_audio_path = os.path.join(get_transcription_temp_dir(), f"{uuid.uuid4()}.wav")
+            self._extract_audio(file_path, temp_audio_path)
+            audio_path = temp_audio_path
+        
+        try:
+            self.transcribe_status['status'] = 'transcribing'
+            
+            lang_code = None
+            if language and language.lower() != 'auto-detect':
+                lang_map = {
+                    'english': 'en', 'chinese': 'zh', 'japanese': 'ja', 'korean': 'ko',
+                    'en': 'en', 'zh': 'zh', 'ja': 'ja', 'ko': 'ko'
+                }
+                lang_code = lang_map.get(language.lower(), language.lower())
+            
+            result = whisper_ct2_service.transcribe(audio_path, model_name, lang_code, use_gpu)
+            return self._parse_srt(result['srt'])
+        finally:
+            if temp_audio_path and os.path.exists(temp_audio_path):
+                os.unlink(temp_audio_path)
+
+    def _parse_srt(self, srt_content):
+        """解析 SRT 内容"""
+        segments = []
+        lines = srt_content.strip().split('\n')
+        
+        i = 0
+        while i < len(lines):
+            if lines[i].strip().isdigit():
+                i += 1
+                if i < len(lines):
+                    time_str = lines[i].strip()
+                    start_end = time_str.split(' --> ')
+                    if len(start_end) == 2:
+                        start_time = self._srt_time_to_seconds(start_end[0])
+                        end_time = self._srt_time_to_seconds(start_end[1])
+                        i += 1
+                        text_lines = []
+                        while i < len(lines) and lines[i].strip():
+                            text_lines.append(lines[i].strip())
+                            i += 1
+                        text = ' '.join(text_lines)
+                        if text:
+                            segments.append({
+                                'start': start_time,
+                                'end': end_time,
+                                'text': text
+                            })
+            i += 1
+        
+        return {
+            'text': ' '.join([seg['text'] for seg in segments]),
+            'srt': srt_content,
+            'segments': segments,
+            'language': 'unknown'
+        }
+
+    def _srt_time_to_seconds(self, time_str):
+        """将 SRT 时间格式转换为秒"""
+        parts = time_str.replace(',', '.').split(':')
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+        return hours * 3600 + minutes * 60 + seconds
 
     def _improve_timestamps(self, segments):
         """改进时间轴准确性"""
         improved_segments = []
         for i, segment in enumerate(segments):
-            # 移除过短的段
             if segment['end'] - segment['start'] < 0.5:
                 continue
             
-            # 合并相邻的短段
             if i > 0 and segment['start'] - improved_segments[-1]['end'] < 0.3:
                 improved_segments[-1]['end'] = segment['end']
                 improved_segments[-1]['text'] = improved_segments[-1]['text'] + ' ' + segment['text']
             else:
                 improved_segments.append(segment)
         
-        # 确保时间轴合理
         for i, segment in enumerate(improved_segments):
-            # 确保开始时间大于前一个的结束时间
             if i > 0 and segment['start'] <= improved_segments[i-1]['end']:
                 segment['start'] = improved_segments[i-1]['end'] + 0.01
         
         return improved_segments
 
-    def transcribe_async(self, file_path, model_name='base', language=None, engine='openai'):
+    def transcribe_async(self, file_path, model_name='base', language=None, engine='openai', use_gpu=True):
         """异步转录"""
         if self.transcribe_status['transcribing']:
             return {'error': '已有转录任务正在进行中'}
         
         thread = threading.Thread(
             target=self._transcribe_thread,
-            args=(file_path, model_name, language, engine)
+            args=(file_path, model_name, language, engine, use_gpu)
         )
         thread.start()
         
         return {'message': '开始转录', 'file_path': file_path}
 
-    def _transcribe_thread(self, file_path, model_name, language, engine):
+    def _transcribe_thread(self, file_path, model_name, language, engine, use_gpu):
         """转录线程函数"""
         try:
             self.transcribe_status['transcribing'] = True
@@ -220,13 +298,11 @@ class TranscriptionService:
             self.transcribe_status['error'] = None
             self._stop_progress = False
             
-            # 启动进度更新线程
             progress_thread = threading.Thread(target=self._update_progress)
             progress_thread.start()
             
-            result = self.transcribe_file(file_path, model_name, language, engine)
+            result = self.transcribe_file(file_path, model_name, language, engine, use_gpu)
             
-            # 转录完成，立即停止进度更新并设置进度为95%
             self._stop_progress = True
             self.transcribe_status['progress'] = 95
             progress_thread.join()
@@ -238,15 +314,12 @@ class TranscriptionService:
             self._stop_progress = True
             self.transcribe_status['status'] = 'error'
             self.transcribe_status['error'] = str(e)
-            print(f"转录失败：{str(e)}")
         finally:
-            # 清理临时文件
             if file_path and os.path.exists(file_path):
                 try:
                     os.unlink(file_path)
-                    print(f"临时文件已清理：{file_path}")
-                except Exception as e:
-                    print(f"清理临时文件失败：{str(e)}")
+                except:
+                    pass
             self.transcribe_status['transcribing'] = False
 
     def _update_progress(self):
@@ -260,18 +333,13 @@ class TranscriptionService:
             elapsed = time.time() - start_time
             
             if current_status == 'loading_model':
-                # 加载模型阶段：0-10%，最多5秒
                 progress = min(10, int(elapsed * 2))
                 self.transcribe_status['progress'] = progress
             elif current_status == 'transcribing':
-                # 转录阶段：10-90%，使用对数曲线让进度更平滑
-                # 假设转录通常需要30-60秒，使用对数曲线让进度缓慢增长
-                adjusted_elapsed = elapsed - 2.5  # 减去加载模型的时间
+                adjusted_elapsed = elapsed - 2.5
                 if adjusted_elapsed > 0:
-                    # 使用对数曲线：进度增长先快后慢
                     base_progress = 10
                     max_progress = 90
-                    # 每10秒增加约20%的进度，但使用对数曲线
                     progress = base_progress + int(30 * math.log10(1 + adjusted_elapsed / 5))
                     progress = min(progress, max_progress)
                     self.transcribe_status['progress'] = progress
@@ -302,8 +370,6 @@ class TranscriptionService:
             srt_content += f"{start_time} --> {end_time}\n"
             srt_content += f"{text}\n\n"
             idx += 1
-        
-        print(f"SRT 字幕生成完成，共 {len(segments)} 条")
         
         return {
             'text': result.get('text', ''),

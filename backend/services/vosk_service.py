@@ -67,7 +67,6 @@ class VoskService:
         try:
             import vosk
         except ImportError:
-            print("正在安装 vosk...")
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'vosk', '-q'])
             import vosk
         return vosk
@@ -76,7 +75,6 @@ class VoskService:
         try:
             import ffmpeg
         except ImportError:
-            print("正在安装 ffmpeg-python...")
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ffmpeg-python', '-q'])
             import ffmpeg
         return ffmpeg
@@ -99,7 +97,6 @@ class VoskService:
                 .overwrite_output()
                 .run(quiet=True)
             )
-            print(f"音频提取完成：{audio_path}")
         except ffmpeg.Error as e:
             raise RuntimeError(f"音频提取失败：{e.stderr.decode('utf-8') if e.stderr else str(e)}")
     
@@ -117,9 +114,6 @@ class VoskService:
         
         zip_path = os.path.join(model_dir, f"{model_code}.zip")
         
-        print(f"正在下载 Vosk 模型：{model['name']}")
-        print(f"下载地址：{model['url']}")
-        
         try:
             response = requests.get(model['url'], stream=True, timeout=600)
             response.raise_for_status()
@@ -135,15 +129,11 @@ class VoskService:
                         progress = int((downloaded_size / total_size) * 100)
                         self.download_status['progress'] = progress
                         self.download_status['status'] = f"downloading {progress}%"
-                        print(f"下载进度：{progress}%", end='\r')
-            
-            print("\n下载完成，正在解压...")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(model_dir)
             
             os.remove(zip_path)
-            print(f"模型下载完成：{model_path}")
             
             self.download_status['status'] = 'completed'
             self.download_status['progress'] = 100
@@ -172,14 +162,12 @@ class VoskService:
             temp_audio_path = None
         
         try:
-            print(f"加载 Vosk 模型：{model_code}")
             if transcribe_status:
                 transcribe_status['status'] = 'loading_model'
                 transcribe_status['progress'] = 10
             
             model = vosk.Model(model_path)
             
-            print("正在识别音频...")
             if transcribe_status:
                 transcribe_status['status'] = 'transcribing'
                 transcribe_status['progress'] = 20
@@ -209,7 +197,6 @@ class VoskService:
             import json
             segments = []
             text = ""
-            idx = 1
             
             for result in results:
                 res = json.loads(result)
