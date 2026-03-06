@@ -1,295 +1,285 @@
-#!/usr/bin/env python3
-# Spark-TTS SRT 字幕配音工具
-# 参考 pyvideotrans-3.97 项目的实现
+# Copyright (c) 2025 SparkAudio
+# SRT字幕配音脚本 - 单条配音+ffmpeg变速对齐时间轴
 
 import os
 import re
-import torch
-import soundfile as sf
+import sys
+import argparse
+import logging
+import platform
 import numpy as np
-from datetime import timedelta
-from cli.SparkTTS import SparkTTS
+import soundfile as sf
+import subprocess
+import tempfile
 
-class SrtDubber:
-    def __init__(self, model_dir="pretrained_models/Spark-TTS-0.5B", device=0):
-        """初始化 SRT 配音器"""
-        print(f"Loading model from: {model_dir}")
-        
-        # 确定设备
-        if torch.cuda.is_available():
-            self.device = torch.device(f"cuda:{device}")
-            print(f"Using CUDA device: {self.device}")
-        else:
-            self.device = torch.device("cpu")
-            print("GPU acceleration not available, using CPU")
-        
-        # 初始化模型
-        self.model = SparkTTS(model_dir, self.device)
+import torch
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+SAMPLE_RATE = 16000
+
+
+def parse_srt_time(time_str):
+    """将SRT时间格式转换为毫秒"""
+    time_str = time_str.strip().replace(',', '.')
+    parts = time_str.split(':')
+    if len(parts) == 3:
+        hours, minutes, seconds = parts
+        hours = int(hours)
+        minutes = int(minutes)
+        sec_parts = seconds.split('.')
+        secs = int(sec_parts[0])
+        ms = int(sec_parts[1].ljust(3, '0')[:3]) if len(sec_parts) > 1 else 0
+        return (hours * 3600 + minutes * 60 + secs) * 1000 + ms
+    return 0
+
+
+def parse_srt(srt_path):
+    """解析SRT字幕文件"""
+    subtitles = []
     
-    def ms_to_time_string(self, ms=0, sepflag=','):
-        """将毫秒转换为时间字符串"""
-        td = timedelta(milliseconds=ms)
-        hours, remainder = divmod(td.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        milliseconds = td.microseconds // 1000
-        return f"{hours:02}:{minutes:02}:{seconds:02}{sepflag}{milliseconds:03}"
+    with open(srt_path, 'r', encoding='utf-8') as f:
+        content = f.read()
     
-    def format_time(self, s_time="", separate=','):
-        """格式化时间字符串"""
-        if not s_time.strip():
-            return f'00:00:00{separate}000'
-        
-        hou, min, sec, ms = 0, 0, 0, 0
-        tmp = s_time.strip().split(':')
-        
-        if len(tmp) >= 3:
-            hou, min, sec = tmp[-3].strip(), tmp[-2].strip(), tmp[-1].strip()
-        elif len(tmp) == 2:
-            min, sec = tmp[0].strip(), tmp[1].strip()
-        elif len(tmp) == 1:
-            sec = tmp[0].strip()
-        
-        if re.search(r',|\.', str(sec)):
-            t = re.split(r',|\.', str(sec))
-            sec = t[0].strip()
-            ms = t[1].strip()
-        else:
-            ms = 0
-        
-        hou = f'{int(hou):02}'[-2:]
-        min = f'{int(min):02}'[-2:]
-        sec = f'{int(sec):02}'
-        ms = f'{int(ms):03}'[-3:]
-        return f"{hou}:{min}:{sec}{separate}{ms}"
+    blocks = re.split(r'\n\s*\n', content.strip())
     
-    def srt_str_to_listdict(self, srt_string):
-        """解析 SRT 字幕字符串为字典列表"""
-        srt_list = []
-        time_pattern = r'\s?(\d+):(\d+):(\d+)([,.]\d+)?\s*?-{1,2}>\s*?(\d+):(\d+):(\d+)([,.]\d+)?\n?'
-        lines = srt_string.splitlines()
-        i = 0
-        
-        while i < len(lines):
-            time_match = re.match(time_pattern, lines[i].strip())
-            if time_match:
-                # 解析时间戳
-                start_time_groups = time_match.groups()[0:4]
-                end_time_groups = time_match.groups()[4:8]
-                
-                def parse_time(time_groups):
-                    h, m, s, ms = time_groups
-                    ms = ms.replace(',', '').replace('.', '') if ms else "0"
-                    try:
-                        return int(h) * 3600000 + int(m) * 60000 + int(s) * 1000 + int(ms)
-                    except (ValueError, TypeError):
-                        return None
-                
-                start_time = parse_time(start_time_groups)
-                end_time = parse_time(end_time_groups)
-                
-                if start_time is None or end_time is None:
-                    i += 1
-                    continue
-                
-                i += 1
-                text_lines = []
-                while i < len(lines):
-                    current_line = lines[i].strip()
-                    next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""  # 获取下一行，如果没有则为空字符串
-                    
-                    if re.match(time_pattern, next_line):  # 判断下一行是否为时间行
-                        if re.fullmatch(r'\d+', current_line):  # 如果当前行为纯数字，则跳过
-                            i += 1
-                            break
-                        else:
-                            if current_line:
-                                text_lines.append(current_line)
-                            i += 1
-                            break
-                    
-                    if current_line:
-                        text_lines.append(current_line)
-                        i += 1
-                    else:
-                        i += 1
-                
-                text = ('\n'.join(text_lines)).strip()
-                text = re.sub(r'</?[a-zA-Z]+>', '', text.replace("\r", '').strip(), flags=re.I | re.S)
-                text = re.sub(r'\n{2,}', '\n', text, flags=re.I | re.S).strip()
-                it = {
-                    "line": len(srt_list) + 1,  # 字幕索引，转换为整数
-                    "start_time": int(start_time),
-                    "end_time": int(end_time),  # 起始和结束时间
-                    "text": text if text else "",  # 字幕文本
-                }
-                it['startraw'] = self.ms_to_time_string(ms=it['start_time'])
-                it['endraw'] = self.ms_to_time_string(ms=it['end_time'])
-                it["time"] = f"{it['startraw']} --> {it['endraw']}"
-                srt_list.append(it)
-            else:
-                i += 1  # 跳过非时间行
-        
-        return srt_list
-    
-    def get_subtitle_from_srt(self, srtfile, *, is_file=True):
-        """从 SRT 文件或字符串获取字幕列表"""
-        def _readfile(file):
-            content = ""
+    for block in blocks:
+        lines = block.strip().split('\n')
+        if len(lines) >= 3:
             try:
-                with open(file, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-            except UnicodeDecodeError as e:
-                try:
-                    with open(file, 'r', encoding='gbk') as f:
-                        content = f.read().strip()
-                except UnicodeDecodeError as e:
-                    raise RuntimeError(f"无法读取 SRT 文件: {e}")
-            except BaseException as e:
-                raise RuntimeError(f"读取 SRT 文件时出错: {e}")
-            return content
-        
-        if is_file:
-            content = _readfile(srtfile)
-        else:
-            content = srtfile.strip()
-        
-        if len(content) < 1:
-            raise RuntimeError("SRT 字幕内容为空")
-        
-        result = self.srt_str_to_listdict(content)
-        
-        # 如果解析失败，返回空列表
-        if len(result) < 1:
-            raise RuntimeError("无法解析 SRT 字幕格式")
-        
-        return result
+                index = int(lines[0].strip())
+                time_line = lines[1].strip()
+                time_match = re.match(
+                    r'(\d{1,2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,\.]\d{3})',
+                    time_line
+                )
+                if time_match:
+                    start_time = parse_srt_time(time_match.group(1))
+                    end_time = parse_srt_time(time_match.group(2))
+                    text = '\n'.join(lines[2:]).strip()
+                    subtitles.append({
+                        'index': index,
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'duration': end_time - start_time,
+                        'text': text
+                    })
+            except (ValueError, IndexError) as e:
+                logger.warning(f"解析字幕块失败: {block[:50]}... 错误: {e}")
+                continue
     
-    def generate_audio_for_subtitle(self, subtitle, prompt_speech_path=None, prompt_text=None, gender=None, pitch=None, speed=None):
-        """为单个字幕生成音频"""
-        text = subtitle['text']
-        
-        with torch.no_grad():
-            wav = self.model.inference(
-                text,
-                prompt_speech_path,
-                prompt_text=prompt_text,
-                gender=gender,
-                pitch=pitch,
-                speed=speed
-            )
-        
-        return wav
+    return subtitles
+
+
+def generate_silence(duration_ms, sample_rate=SAMPLE_RATE):
+    """生成指定时长的静音"""
+    samples = int(duration_ms / 1000 * sample_rate)
+    return np.zeros(samples, dtype=np.float32)
+
+
+def stretch_audio_ffmpeg(input_path, output_path, target_duration_ms, actual_duration_ms):
+    """
+    使用ffmpeg进行音频变速处理
+    tempo = actual_duration / target_duration
+    - tempo > 1: 加速 (音频比目标长)
+    - tempo < 1: 减速 (音频比目标短)
+    """
+    if actual_duration_ms <= 0 or target_duration_ms <= 0:
+        return False
     
-    def adjust_audio_length(self, wav, target_duration_ms, sample_rate=16000):
-        """调整音频长度以匹配目标时长"""
-        # 由于现在直接在生成时指定目标时长，此方法可能不再需要
-        # 但为了向后兼容，保留此方法
-        return wav
+    tempo = actual_duration_ms / target_duration_ms
     
-    def process_srt(self, srt_file, output_dir="output", prompt_speech_path=None, prompt_text=None, gender=None, pitch=None, speed=None):
-        """处理 SRT 字幕文件并生成配音"""
-        os.makedirs(output_dir, exist_ok=True)
-        
-        print(f"Parsing SRT file: {srt_file}")
-        subtitles = self.get_subtitle_from_srt(srt_file)
-        print(f"Found {len(subtitles)} subtitles")
-        
-        if not subtitles:
-            raise RuntimeError("No subtitles found")
-        
-        sample_rate = 16000
-        last_end_time = 0
-        audio_segments = []
-        
-        for i, subtitle in enumerate(subtitles):
-            print(f"Processing subtitle {i+1}/{len(subtitles)}: {subtitle['text'][:50]}...")
-            
-            start_time = subtitle['start_time']
-            end_time = subtitle['end_time']
-            target_duration_ms = end_time - start_time
-            
-            gap_ms = start_time - last_end_time
-            if gap_ms > 0 and i > 0:
-                gap_samples = int(gap_ms / 1000 * sample_rate)
-                silence = np.zeros(gap_samples, dtype=np.float32)
-                audio_segments.append(silence)
-                print(f"  Added {gap_ms}ms silence gap")
-            
-            if i == 0 and start_time > 0:
-                initial_silence_samples = int(start_time / 1000 * sample_rate)
-                silence = np.zeros(initial_silence_samples, dtype=np.float32)
-                audio_segments.append(silence)
-                print(f"  Added {start_time}ms initial silence")
-            
-            wav = self.generate_audio_for_subtitle(
-                subtitle,
-                prompt_speech_path=prompt_speech_path,
-                prompt_text=prompt_text,
-                gender=gender,
-                pitch=pitch,
-                speed=speed
-            )
-            
-            actual_duration_ms = len(wav) / sample_rate * 1000
-            if abs(actual_duration_ms - target_duration_ms) > 100:
-                print(f"  Warning: Generated {actual_duration_ms:.0f}ms, target {target_duration_ms}ms")
-            
-            audio_segments.append(wav)
-            last_end_time = end_time
-        
-        print("Merging audio segments...")
-        full_audio = np.concatenate(audio_segments)
-        
-        output_file = os.path.join(output_dir, f"{os.path.basename(srt_file).replace('.srt', '')}_dubbed.wav")
-        sf.write(output_file, full_audio, samplerate=sample_rate)
-        
-        total_duration_s = len(full_audio) / sample_rate
-        expected_duration_s = subtitles[-1]['end_time'] / 1000
-        print(f"Dubbed audio saved to: {output_file}")
-        print(f"Total duration: {total_duration_s:.2f}s, Expected: {expected_duration_s:.2f}s")
-        
-        return output_file
+    if abs(tempo - 1.0) < 0.01:
+        import shutil
+        shutil.copy(input_path, output_path)
+        return True
+    
+    min_tempo = 0.5
+    max_tempo = 2.0
+    
+    if tempo < min_tempo:
+        logger.warning(f"变速倍数 {tempo:.3f} 过小，限制为 {min_tempo}")
+        tempo = min_tempo
+    elif tempo > max_tempo:
+        logger.warning(f"变速倍数 {tempo:.3f} 过大，限制为 {max_tempo}")
+        tempo = max_tempo
+    
+    cmd = [
+        'ffmpeg',
+        '-y',
+        '-i', input_path,
+        '-filter:a', f'atempo={tempo}',
+        '-ar', str(SAMPLE_RATE),
+        output_path
+    ]
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+        if result.returncode != 0:
+            logger.error(f"ffmpeg变速失败: {result.stderr}")
+            return False
+        return True
+    except FileNotFoundError:
+        logger.error("ffmpeg未找到，请确保已安装并添加到PATH")
+        return False
+
 
 def main():
-    """主函数"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Spark-TTS SRT 字幕配音工具")
-    parser.add_argument("srt_file", help="SRT 字幕文件路径")
-    parser.add_argument("--output_dir", default="output", help="输出目录")
-    parser.add_argument("--model_dir", default="pretrained_models/Spark-TTS-0.5B", help="模型目录")
-    parser.add_argument("--device", type=int, default=0, help="CUDA 设备编号")
-    parser.add_argument("--prompt_speech_path", help="参考音频路径")
-    parser.add_argument("--prompt_text", help="参考音频文本")
-    parser.add_argument("--gender", choices=["male", "female"], help="性别")
-    parser.add_argument("--pitch", choices=["very_low", "low", "moderate", "high", "very_high"], help="音高")
-    parser.add_argument("--speed", choices=["very_low", "low", "moderate", "high", "very_high"], help="语速")
+    parser = argparse.ArgumentParser(description="SRT字幕配音生成")
+    parser.add_argument("srt_file", type=str, help="SRT字幕文件路径")
+    parser.add_argument("--output_dir", type=str, default=None, help="输出目录")
+    parser.add_argument("--model_dir", type=str, 
+                        default="pretrained_models/Spark-TTS-0.5B",
+                        help="模型目录")
+    parser.add_argument("--device", type=int, default=0, help="CUDA设备编号")
+    parser.add_argument("--prompt_speech_path", type=str, required=True,
+                        help="参考音频路径")
+    parser.add_argument("--prompt_text", type=str, default=None,
+                        help="参考音频文本")
+    parser.add_argument("--speed", type=str, default="moderate",
+                        choices=["very_low", "low", "moderate", "high", "very_high"],
+                        help="语速")
     
     args = parser.parse_args()
     
-    # 检查文件是否存在
     if not os.path.exists(args.srt_file):
-        print(f"Error: SRT file not found: {args.srt_file}")
-        return
+        logger.error(f"SRT文件不存在: {args.srt_file}")
+        sys.exit(1)
     
-    # 初始化配音器
-    dubber = SrtDubber(model_dir=args.model_dir, device=args.device)
+    if not os.path.exists(args.prompt_speech_path):
+        logger.error(f"参考音频不存在: {args.prompt_speech_path}")
+        sys.exit(1)
     
-    # 处理 SRT 文件
+    if args.output_dir is None:
+        args.output_dir = os.path.dirname(args.srt_file)
+    
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    temp_dir = tempfile.mkdtemp(prefix='tts_dubbing_')
+    
+    logger.info(f"解析SRT文件: {args.srt_file}")
+    subtitles = parse_srt(args.srt_file)
+    
+    if not subtitles:
+        logger.error("未找到有效的字幕条目")
+        sys.exit(1)
+    
+    logger.info(f"共找到 {len(subtitles)} 条字幕")
+    
+    if platform.system() == "Darwin" and torch.backends.mps.is_available():
+        device = torch.device(f"mps:{args.device}")
+    elif torch.cuda.is_available():
+        device = torch.device(f"cuda:{args.device}")
+    else:
+        device = torch.device("cpu")
+    
+    logger.info(f"使用设备: {device}")
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if os.path.isabs(args.model_dir):
+        model_dir = args.model_dir
+    else:
+        model_dir = os.path.normpath(os.path.join(script_dir, args.model_dir))
+    
+    if not os.path.exists(model_dir):
+        logger.error(f"模型目录不存在: {model_dir}")
+        sys.exit(1)
+    
+    logger.info(f"加载模型: {model_dir}")
+    
+    sys.path.insert(0, script_dir)
+    from cli.SparkTTS import SparkTTS
+    
+    model = SparkTTS(model_dir, device)
+    
+    logger.info("模型加载完成，开始生成配音...")
+    
+    audio_segments = []
+    current_position_ms = 0
+    
+    for i, sub in enumerate(subtitles):
+        logger.info(f"[{i+1}/{len(subtitles)}] 处理字幕: {sub['text'][:30]}...")
+        
+        if sub['start_time'] > current_position_ms:
+            gap_duration = sub['start_time'] - current_position_ms
+            silence = generate_silence(gap_duration)
+            audio_segments.append(silence)
+            logger.info(f"  添加 {gap_duration}ms 静音间隙")
+            current_position_ms = sub['start_time']
+        
+        try:
+            with torch.no_grad():
+                wav = model.inference(
+                    sub['text'],
+                    args.prompt_speech_path,
+                    prompt_text=args.prompt_text,
+                    speed=args.speed,
+                )
+            
+            if isinstance(wav, torch.Tensor):
+                wav = wav.detach().cpu().numpy()
+            
+            wav = np.array(wav, dtype=np.float32)
+            
+            actual_duration_ms = len(wav) / SAMPLE_RATE * 1000
+            target_duration_ms = sub['duration']
+            
+            tempo = actual_duration_ms / target_duration_ms
+            stretch_ratio = 1.0 / tempo
+            
+            if abs(tempo - 1.0) > 0.01:
+                original_path = os.path.join(temp_dir, f'original_{sub["index"]:03d}.wav')
+                stretched_path = os.path.join(temp_dir, f'stretched_{sub["index"]:03d}.wav')
+                
+                sf.write(original_path, wav, SAMPLE_RATE)
+                
+                if stretch_audio_ffmpeg(original_path, stretched_path, target_duration_ms, actual_duration_ms):
+                    stretched_wav, _ = sf.read(stretched_path)
+                    if stretched_wav.dtype != np.float32:
+                        stretched_wav = stretched_wav.astype(np.float32)
+                    wav = stretched_wav
+                    logger.info(f"  生成音频: {actual_duration_ms:.0f}ms → 变速{stretch_ratio:.2f}x → {len(wav)/SAMPLE_RATE*1000:.0f}ms (目标 {target_duration_ms}ms)")
+                else:
+                    logger.warning(f"  变速失败，使用原始音频: {actual_duration_ms:.0f}ms")
+            else:
+                logger.info(f"  生成音频: {actual_duration_ms:.0f}ms (目标 {target_duration_ms}ms, 无需变速)")
+            
+            audio_segments.append(wav)
+            current_position_ms = sub['end_time']
+            
+        except Exception as e:
+            logger.error(f"  生成失败: {e}")
+            silence = generate_silence(sub['duration'])
+            audio_segments.append(silence)
+            current_position_ms = sub['end_time']
+    
+    logger.info("合成最终音频...")
+    
+    final_audio = np.concatenate(audio_segments)
+    
+    output_file = os.path.join(args.output_dir, 'subtitle_dubbed.wav')
+    sf.write(output_file, final_audio, SAMPLE_RATE)
+    
     try:
-        output_file = dubber.process_srt(
-            args.srt_file,
-            output_dir=args.output_dir,
-            prompt_speech_path=args.prompt_speech_path,
-            prompt_text=args.prompt_text,
-            gender=args.gender,
-            pitch=args.pitch,
-            speed=args.speed
-        )
-        print(f"\n[OK] Dubbing completed successfully!")
-        print(f"Output file: {output_file}")
-    except Exception as e:
-        print(f"[ERROR] {e}")
+        import shutil
+        shutil.rmtree(temp_dir)
+    except:
+        pass
+    
+    logger.info(f"配音生成完成: {output_file}")
+    logger.info(f"总时长: {len(final_audio)/SAMPLE_RATE:.2f}秒")
+    
+    return output_file
+
 
 if __name__ == "__main__":
     main()

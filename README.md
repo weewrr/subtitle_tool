@@ -36,9 +36,13 @@
 
 ### 文本转语音（TTS）
 - 基于 Spark-TTS 的本地语音合成
-- 支持男声/女声选择
-- 可调节音高、语速
-- 自动生成配音时间轴
+- 声音克隆：使用参考音频克隆声音
+- 可调节语速（very_low/low/moderate/high/very_high）
+- **智能时间轴对齐**：
+  - 单条字幕独立生成配音
+  - 自动静音间隙填充
+  - FFmpeg 变速处理对齐字幕时长
+  - 变速范围 0.5x ~ 2.0x，超出范围自动限制
 - 支持导入外部音频
 
 ### 硬字幕生成
@@ -59,7 +63,7 @@
 - Flask - Web 框架
 - OpenAI Whisper - 语音识别
 - Spark-TTS - 语音合成
-- FFmpeg - 音视频处理
+- FFmpeg - 音视频处理、音频变速
 
 ### 前端
 - Vue 3 - 前端框架
@@ -76,15 +80,22 @@ subtitle_tool/
 │   ├── config/             # 配置文件
 │   ├── routes/             # API 路由
 │   ├── services/           # 业务逻辑
+│   │   └── spark_tts_service.py  # TTS 服务
 │   └── utils/              # 工具函数
 ├── frontend/               # 前端代码
 │   ├── src/
 │   │   ├── components/    # Vue 组件
+│   │   │   └── TtsPanel.vue  # TTS 面板
 │   │   ├── stores/        # 状态管理
 │   │   ├── services/      # API 服务
 │   │   └── views/         # 页面视图
 │   └── electron/          # Electron 配置
-├── Spark-TTS/              # TTS 模型
+├── Spark-TTS/              # TTS 引擎
+│   ├── cli/               # 命令行工具
+│   │   └── SparkTTS.py    # TTS 主类
+│   ├── sparktts/          # 核心模块
+│   ├── srt_dubbing.py     # 字幕配音脚本
+│   └── pretrained_models/ # 模型文件
 ├── Temp/                   # 临时文件目录
 ├── app.py                  # Flask 应用入口
 └── requirements.txt        # Python 依赖
@@ -95,7 +106,7 @@ subtitle_tool/
 ### 环境要求
 - Python 3.12+
 - Node.js 18+
-- FFmpeg
+- FFmpeg（需添加到系统 PATH）
 - CUDA（可选，用于 GPU 加速）
 
 ### 后端安装
@@ -159,7 +170,10 @@ python app.py
 ### 拼写检查
 - `POST /api/spell-check/ai` - AI 拼写检查
 
-### TTS
+### TTS 配音
+- `GET /api/tts/reference-audios` - 获取参考音频列表
+- `POST /api/tts/upload-reference` - 上传参考音频
+- `DELETE /api/tts/reference-audio/<filename>` - 删除参考音频
 - `POST /api/tts/generate-subtitles` - 生成字幕配音
 - `GET /api/tts/status` - 获取生成状态
 - `GET /api/tts/result` - 获取生成结果
@@ -183,10 +197,25 @@ python app.py
 - `medium` - 更高准确率
 - `large` - 最高准确率，需要更多资源
 
-### TTS 配置
-- `gender`: male/female
-- `pitch`: very_low/low/moderate/high/very_high
-- `speed`: very_low/low/moderate/high/very_high
+### TTS 配音配置
+- `prompt_speech_path`: 参考音频路径（用于声音克隆）
+- `prompt_text`: 参考音频对应文本（可选）
+- `speed`: 语速（very_low/low/moderate/high/very_high）
+
+### 时间轴对齐算法
+
+配音生成采用以下步骤确保时间轴对齐：
+
+1. **单条生成**：每条字幕独立调用 TTS 生成音频
+2. **静音填充**：在字幕间隙插入静音，保持时间轴连续
+3. **变速对齐**：使用 FFmpeg `atempo` 滤镜调整音频时长
+   ```
+   tempo = 实际时长 / 目标时长
+   - tempo > 1: 加速（音频过长）
+   - tempo < 1: 减速（音频过短）
+   - 变速范围限制: 0.5x ~ 2.0x
+   ```
+4. **拼接输出**：将所有片段拼接为完整配音文件
 
 ## 常见问题
 
@@ -203,6 +232,11 @@ python app.py
 ### 字幕时间轴不对齐
 - 使用分割长句功能优化字幕
 - 手动调整字幕时间
+- 检查变速范围是否超出限制
+
+### FFmpeg 未找到
+- 确保 FFmpeg 已安装并添加到系统 PATH
+- Windows 用户可从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载
 
 ## 许可证
 
@@ -219,3 +253,4 @@ python app.py
 - [Vue.js](https://vuejs.org/) - 前端框架
 - [Element Plus](https://element-plus.org/) - UI 组件库
 - [Electron](https://www.electronjs.org/) - 桌面应用框架
+- [FFmpeg](https://ffmpeg.org/) - 音视频处理

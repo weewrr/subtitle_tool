@@ -17,40 +17,46 @@
       </div>
     </div>
     
-    <el-form label-width="60px" size="small">
+    <el-form label-width="80px" size="small">
       <el-form-item label="引擎">
         <el-select v-model="ttsEngine" style="width: 100%">
           <el-option label="Spark-TTS (本地)" value="spark" />
         </el-select>
       </el-form-item>
       
-      <el-form-item label="语音">
-        <el-select v-model="ttsVoice" style="width: 100%">
-          <el-option-group label="中文">
-            <el-option label="男声" value="male" />
-            <el-option label="女声" value="female" />
-          </el-option-group>
-        </el-select>
+      <el-form-item label="参考音频">
+        <div class="audio-upload-row">
+          <el-select v-model="ttsVoice" style="flex: 1" placeholder="选择或上传参考音频" @visible-change="onVoiceDropdownChange">
+            <el-option 
+              v-for="voice in voices" 
+              :key="voice.filename" 
+              :label="voice.name" 
+              :value="voice.filename"
+            />
+          </el-select>
+          <el-upload
+            ref="uploadRef"
+            :action="uploadUrl"
+            :headers="uploadHeaders"
+            :on-success="handleUploadSuccess"
+            :on-error="handleUploadError"
+            :before-upload="beforeUpload"
+            :show-file-list="false"
+            accept=".wav,.mp3,.ogg,.m4a,.flac"
+          >
+            <el-button size="small" type="primary">
+              <el-icon><Upload /></el-icon>
+            </el-button>
+          </el-upload>
+        </div>
       </el-form-item>
       
-      <el-form-item label="音高">
-        <el-select v-model="ttsPitch" style="width: 100%">
-          <el-option label="很低" value="very_low" />
-          <el-option label="低" value="low" />
-          <el-option label="适中" value="moderate" />
-          <el-option label="高" value="high" />
-          <el-option label="很高" value="very_high" />
-        </el-select>
-      </el-form-item>
-      
-      <el-form-item label="语速">
-        <el-select v-model="ttsSpeed" style="width: 100%">
-          <el-option label="很慢" value="very_low" />
-          <el-option label="慢" value="low" />
-          <el-option label="适中" value="moderate" />
-          <el-option label="快" value="high" />
-          <el-option label="很快" value="very_high" />
-        </el-select>
+      <el-form-item label="音频文本">
+        <el-input 
+          v-model="promptText" 
+          placeholder="参考音频对应的文本内容（可选，推荐用于同语言克隆）" 
+          style="width: 100%"
+        />
       </el-form-item>
       
       <el-form-item>
@@ -97,16 +103,20 @@ const subtitleStore = useSubtitleStore()
 const recentFilesStore = useRecentFilesStore()
 
 const ttsEngine = ref('spark')
-const ttsVoice = ref('male')
-const ttsPitch = ref('moderate')
-const ttsSpeed = ref('moderate')
+const ttsVoice = ref('')
+const promptText = ref('')
 const isGenerating = ref(false)
 const progressText = ref('')
 const generatedAudioUrl = ref('')
 const modelInfo = ref(null)
 const audioPlayer = ref(null)
 const audioInputRef = ref(null)
+const voices = ref([])
+const uploadRef = ref(null)
 let statusPollingInterval = null
+
+const uploadUrl = computed(() => `${getBackendBaseUrl()}/api/tts/upload-voice`)
+const uploadHeaders = computed(() => ({}))
 
 const hasGeneratedAudio = computed(() => !!generatedAudioUrl.value || !!subtitleStore.dubbingAudioFile)
 
@@ -118,7 +128,7 @@ watch(() => subtitleStore.dubbingAudioFile, (newFile) => {
 })
 
 const canGenerate = computed(() => {
-  return subtitleStore.paragraphCount > 0 && !isGenerating.value
+  return subtitleStore.paragraphCount > 0 && !isGenerating.value && ttsVoice.value
 })
 
 function isAudioFile(file) {
@@ -135,6 +145,7 @@ const isOpenedAudioFile = computed(() => {
 
 onMounted(async () => {
   await fetchModelInfo()
+  await fetchVoices()
 })
 
 onUnmounted(() => {
@@ -152,9 +163,56 @@ async function fetchModelInfo() {
   }
 }
 
+async function fetchVoices() {
+  try {
+    const response = await axios.get('/api/tts/voices')
+    if (response.data.success) {
+      voices.value = response.data.voices
+    }
+  } catch (error) {
+    console.error('Failed to fetch voices:', error)
+  }
+}
+
+function onVoiceDropdownChange(visible) {
+  if (visible) {
+    fetchVoices()
+  }
+}
+
+function beforeUpload(file) {
+  const allowedExtensions = ['.wav', '.mp3', '.ogg', '.m4a', '.flac']
+  const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+  
+  if (!allowedExtensions.includes(ext)) {
+    ElMessage.error('不支持的音频格式，请上传 WAV, MP3, OGG, M4A 或 FLAC 文件')
+    return false
+  }
+  return true
+}
+
+function handleUploadSuccess(response) {
+  if (response.success) {
+    ElMessage.success('上传成功')
+    fetchVoices()
+    ttsVoice.value = response.voice.filename
+  } else {
+    ElMessage.error('上传失败: ' + response.error)
+  }
+}
+
+function handleUploadError(error) {
+  ElMessage.error('上传失败: ' + (error.message || '未知错误'))
+}
+
 async function generateSpeech() {
   if (subtitleStore.paragraphCount === 0) {
     ElMessage.warning('没有可用的字幕')
+    return
+  }
+  
+  if (!ttsVoice.value) {
+    ElMessage.warning('请选择或上传参考音频')
     return
   }
   
@@ -171,11 +229,15 @@ async function generateSpeech() {
     
     progressText.value = '正在启动生成任务...'
     
+    const voice = voices.value.find(v => v.filename === ttsVoice.value)
+    const promptSpeechPath = voice ? voice.path : null
+    
+    console.log('[TtsPanel] Using reference audio:', promptSpeechPath)
+    
     const response = await axios.post('/api/tts/generate-subtitles', {
       subtitles: subtitles,
-      gender: ttsVoice.value,
-      pitch: ttsPitch.value,
-      speed: ttsSpeed.value
+      prompt_speech_path: promptSpeechPath,
+      prompt_text: promptText.value.trim() || null
     })
     
     if (response.data.success && response.data.status === 'started') {
@@ -242,12 +304,6 @@ function stopStatusPolling() {
   if (statusPollingInterval) {
     clearInterval(statusPollingInterval)
     statusPollingInterval = null
-  }
-}
-
-function previewAudio() {
-  if (audioPlayer.value) {
-    audioPlayer.value.play()
   }
 }
 
@@ -369,6 +425,12 @@ async function exportAudio() {
       display: flex;
       gap: 8px;
     }
+  }
+
+  .audio-upload-row {
+    display: flex;
+    gap: 8px;
+    width: 100%;
   }
 
   .el-form-item {

@@ -15,7 +15,6 @@
 
 import re
 import torch
-import numpy as np
 from typing import Tuple
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -167,7 +166,6 @@ class SparkTTS:
         temperature: float = 0.8,
         top_k: float = 50,
         top_p: float = 0.95,
-        target_duration: int = None,  # 目标时长（毫秒）
     ) -> torch.Tensor:
         """
         Performs inference to generate speech from text, incorporating prompt audio and/or text.
@@ -182,18 +180,24 @@ class SparkTTS:
             temperature (float, optional): Sampling temperature for controlling randomness. Default is 0.8.
             top_k (float, optional): Top-k sampling parameter. Default is 50.
             top_p (float, optional): Top-p (nucleus) sampling parameter. Default is 0.95.
-            target_duration (int, optional): Target duration of the generated audio in milliseconds.
 
         Returns:
             torch.Tensor: Generated waveform as a tensor.
         """
+        global_token_ids = None
+        
+        print(f"[SparkTTS.inference] gender={gender}, prompt_speech_path={prompt_speech_path}")
+        
         if gender is not None:
+            print(f"[SparkTTS.inference] Using VOICE CREATION mode")
             prompt = self.process_prompt_control(gender, pitch, speed, text)
-
         else:
+            print(f"[SparkTTS.inference] Using VOICE CLONING mode")
             prompt, global_token_ids = self.process_prompt(
                 text, prompt_speech_path, prompt_text
             )
+            print(f"[SparkTTS.inference] global_token_ids shape: {global_token_ids.shape if global_token_ids is not None else None}")
+            
         model_inputs = self.tokenizer([prompt], return_tensors="pt").to(self.device)
 
         # Generate speech using the model
@@ -229,30 +233,14 @@ class SparkTTS:
                 .unsqueeze(0)
                 .unsqueeze(0)
             )
+            print(f"[SparkTTS.inference] Generated global_token_ids from model output, shape: {global_token_ids.shape}")
+        else:
+            print(f"[SparkTTS.inference] Using global_token_ids from prompt, shape: {global_token_ids.shape}")
 
         # Convert semantic tokens back to waveform
         wav = self.audio_tokenizer.detokenize(
             global_token_ids.to(self.device).squeeze(0),
             pred_semantic_ids.to(self.device),
         )
-
-        # 调整音频长度以匹配目标时长
-        if target_duration is not None:
-            sample_rate = self.sample_rate  # 使用配置的采样率
-            target_length = int(target_duration / 1000 * sample_rate)
-            
-            if len(wav) > target_length:
-                # 截断过长的音频
-                wav = wav[:target_length]
-            elif len(wav) < target_length:
-                # 填充过短的音频（添加静音）
-                # 检查 wav 是否为 numpy 数组
-                if isinstance(wav, np.ndarray):
-                    silence = np.zeros(target_length - len(wav), dtype=wav.dtype)
-                    wav = np.concatenate([wav, silence])
-                else:
-                    # 对于 torch 张量
-                    silence = torch.zeros(target_length - len(wav), dtype=wav.dtype, device=wav.device)
-                    wav = torch.cat([wav, silence])
 
         return wav

@@ -58,9 +58,6 @@ def parse_args():
     parser.add_argument(
         "--speed", choices=["very_low", "low", "moderate", "high", "very_high"]
     )
-    parser.add_argument(
-        "--target_duration", type=int, help="Target duration of the generated audio in milliseconds"
-    )
     return parser.parse_args()
 
 
@@ -104,7 +101,6 @@ def run_tts(args):
             gender=args.gender,
             pitch=args.pitch,
             speed=args.speed,
-            target_duration=args.target_duration,
         )
         sf.write(save_path, wav, samplerate=16000)
 

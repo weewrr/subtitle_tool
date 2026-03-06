@@ -4,6 +4,9 @@ model/
 Dictionaries/
 Spark-TTS/example/
 Spark-TTS/pretrained_models/
+Spark-TTS/speech/
+Spark-TTS/test/
+Release/
 *.pyc
 __pycache__/
 node_modules/
