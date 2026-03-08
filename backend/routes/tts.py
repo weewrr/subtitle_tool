@@ -158,6 +158,14 @@ def abort_generation():
     spark_tts_service.abort()
     return jsonify({'success': True, 'message': '已中止生成'})
 
+@tts_bp.route('/engines', methods=['GET'])
+def get_engines():
+    """获取可用的TTS引擎列表"""
+    return jsonify({
+        'success': True,
+        'engines': spark_tts_service.get_available_engines()
+    })
+
 @tts_bp.route('/generate-subtitles', methods=['POST'])
 def generate_subtitle_audio():
     try:
@@ -166,13 +174,16 @@ def generate_subtitle_audio():
         subtitles = data.get('subtitles', [])
         prompt_speech_path = data.get('prompt_speech_path')
         prompt_text = data.get('prompt_text')
+        engine = data.get('engine', 'spark-tts')
+        mode = data.get('mode', 'icl')
         
         print(f"\n{'='*60}")
         print(f"[TTS ROUTE] Received request from frontend:")
         print(f"  - subtitles count: {len(subtitles)}")
         print(f"  - prompt_speech_path: {prompt_speech_path}")
         print(f"  - prompt_text: {prompt_text}")
-        print(f"  - prompt_speech_path type: {type(prompt_speech_path)}")
+        print(f"  - engine: {engine}")
+        print(f"  - mode: {mode}")
         print(f"{'='*60}\n")
         
         if not subtitles:
@@ -196,7 +207,9 @@ def generate_subtitle_audio():
         result = spark_tts_service.generate_subtitle_audio_async(
             subtitles,
             prompt_speech_path=prompt_speech_path,
-            prompt_text=prompt_text
+            prompt_text=prompt_text,
+            engine=engine,
+            mode=mode
         )
         
         if 'error' in result:

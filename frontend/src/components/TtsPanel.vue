@@ -3,8 +3,8 @@
     <div class="tts-header">
       <div class="header-left">
         <h4>文本转语音</h4>
-        <el-tag v-if="modelInfo" size="small" :type="modelInfo.loaded ? 'success' : 'info'">
-          {{ modelInfo.loaded ? '模型可用' : '模型不可用' }}
+        <el-tag v-if="engines.length > 0" size="small" type="success">
+          {{ engines.length }} 个引擎可用
         </el-tag>
       </div>
       <div class="header-buttons">
@@ -19,8 +19,35 @@
     
     <el-form label-width="80px" size="small">
       <el-form-item label="引擎">
-        <el-select v-model="ttsEngine" style="width: 100%">
-          <el-option label="Spark-TTS (本地)" value="spark" />
+        <el-select v-model="ttsEngine" style="width: 100%" @change="onEngineChange">
+          <el-option 
+            v-for="engine in engines" 
+            :key="engine.id" 
+            :label="engine.name" 
+            :value="engine.id"
+          >
+            <div class="engine-option">
+              <span>{{ engine.name }}</span>
+              <span class="engine-desc">{{ engine.description }}</span>
+            </div>
+          </el-option>
+        </el-select>
+      </el-form-item>
+      
+      <el-form-item v-if="ttsEngine === 'qwen3-tts'" label="模式">
+        <el-select v-model="qwenMode" style="width: 100%">
+          <el-option label="ICL (高质量)" value="icl">
+            <div class="mode-option">
+              <span>ICL (高质量)</span>
+              <span class="mode-desc">克隆质量更高，需要参考文本</span>
+            </div>
+          </el-option>
+          <el-option label="xvec_only (快速)" value="xvec_only">
+            <div class="mode-option">
+              <span>xvec_only (快速)</span>
+              <span class="mode-desc">速度更快，参考文本可选</span>
+            </div>
+          </el-option>
         </el-select>
       </el-form-item>
       
@@ -54,7 +81,7 @@
       <el-form-item label="音频文本">
         <el-input 
           v-model="promptText" 
-          placeholder="参考音频对应的文本内容（可选，推荐用于同语言克隆）" 
+          :placeholder="promptTextPlaceholder" 
           style="width: 100%"
         />
       </el-form-item>
@@ -102,13 +129,14 @@ import { getBackendBaseUrl } from '@/utils/runtime'
 const subtitleStore = useSubtitleStore()
 const recentFilesStore = useRecentFilesStore()
 
-const ttsEngine = ref('spark')
+const ttsEngine = ref('spark-tts')
+const qwenMode = ref('icl')
 const ttsVoice = ref('')
 const promptText = ref('')
 const isGenerating = ref(false)
 const progressText = ref('')
 const generatedAudioUrl = ref('')
-const modelInfo = ref(null)
+const engines = ref([])
 const audioPlayer = ref(null)
 const audioInputRef = ref(null)
 const voices = ref([])
@@ -119,6 +147,13 @@ const uploadUrl = computed(() => `${getBackendBaseUrl()}/api/tts/upload-voice`)
 const uploadHeaders = computed(() => ({}))
 
 const hasGeneratedAudio = computed(() => !!generatedAudioUrl.value || !!subtitleStore.dubbingAudioFile)
+
+const promptTextPlaceholder = computed(() => {
+  if (ttsEngine.value === 'qwen3-tts' && qwenMode.value === 'xvec_only') {
+    return '参考音频文本（可选）'
+  }
+  return '参考音频对应的文本内容（可选，推荐用于同语言克隆）'
+})
 
 watch(() => subtitleStore.dubbingAudioFile, (newFile) => {
   if (newFile && typeof newFile === 'string') {
@@ -144,7 +179,7 @@ const isOpenedAudioFile = computed(() => {
 })
 
 onMounted(async () => {
-  await fetchModelInfo()
+  await fetchEngines()
   await fetchVoices()
 })
 
@@ -152,14 +187,17 @@ onUnmounted(() => {
   stopStatusPolling()
 })
 
-async function fetchModelInfo() {
+async function fetchEngines() {
   try {
-    const response = await axios.get('/api/tts/info')
+    const response = await axios.get('/api/tts/engines')
     if (response.data.success) {
-      modelInfo.value = response.data
+      engines.value = response.data.engines
+      if (engines.value.length > 0 && !engines.value.find(e => e.id === ttsEngine.value)) {
+        ttsEngine.value = engines.value[0].id
+      }
     }
   } catch (error) {
-    console.error('Failed to fetch model info:', error)
+    console.error('Failed to fetch engines:', error)
   }
 }
 
@@ -171,6 +209,12 @@ async function fetchVoices() {
     }
   } catch (error) {
     console.error('Failed to fetch voices:', error)
+  }
+}
+
+function onEngineChange() {
+  if (ttsEngine.value === 'qwen3-tts') {
+    qwenMode.value = 'icl'
   }
 }
 
@@ -233,11 +277,15 @@ async function generateSpeech() {
     const promptSpeechPath = voice ? voice.path : null
     
     console.log('[TtsPanel] Using reference audio:', promptSpeechPath)
+    console.log('[TtsPanel] Using engine:', ttsEngine.value)
+    console.log('[TtsPanel] Using mode:', qwenMode.value)
     
     const response = await axios.post('/api/tts/generate-subtitles', {
       subtitles: subtitles,
       prompt_speech_path: promptSpeechPath,
-      prompt_text: promptText.value.trim() || null
+      prompt_text: promptText.value.trim() || null,
+      engine: ttsEngine.value,
+      mode: qwenMode.value
     })
     
     if (response.data.success && response.data.status === 'started') {
@@ -442,6 +490,17 @@ async function exportAudio() {
     font-size: 12px;
     color: #909399;
     text-align: center;
+  }
+  
+  .engine-option, .mode-option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    
+    .engine-desc, .mode-desc {
+      font-size: 11px;
+      color: #909399;
+    }
   }
 }
 </style>

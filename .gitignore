@@ -6,7 +6,8 @@ Spark-TTS/example/
 Spark-TTS/pretrained_models/
 Spark-TTS/speech/
 Spark-TTS/test/
-Release/
+Qwen3-TTS/examples/
+Qwen3-TTS/Qwen3-TTS-12Hz-1.7B-Base
 *.pyc
 __pycache__/
 node_modules/
