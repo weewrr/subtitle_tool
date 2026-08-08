@@ -12,14 +12,15 @@ from backend.routes import (
     hard_subtitle_bp,
     waveform_bp,
     tts_bp,
-    video_bp
+    video_bp,
+    settings_bp
 )
 
 def create_app():
     app = Flask(__name__, static_folder='.')
     
     CORS(app, resources={r"/api/*": {"origins": "*"}})
-    
+
     app.register_blueprint(whisper_bp)
     app.register_blueprint(vosk_bp)
     app.register_blueprint(transcription_bp)
@@ -30,6 +31,7 @@ def create_app():
     app.register_blueprint(waveform_bp)
     app.register_blueprint(tts_bp)
     app.register_blueprint(video_bp)
+    app.register_blueprint(settings_bp)
     
     @app.route('/')
     def index():

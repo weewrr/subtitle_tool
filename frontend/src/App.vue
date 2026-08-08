@@ -71,6 +71,7 @@
       <SplitLongLinesModal />
       <SplitLongLinesAdvancedModal />
       <HardSubtitleModal ref="hardSubtitleModalRef" />
+      <SettingsDialog :visible="uiStore.settingsDialogVisible" @update:visible="uiStore.hideSettingsDialog" />
     </div>
   </el-config-provider>
 </template>
@@ -102,8 +103,8 @@ import MergeSentencesModal from '@/components/modals/MergeSentencesModal.vue'
 import SplitLongLinesModal from '@/components/modals/SplitLongLinesModal.vue'
 import SplitLongLinesAdvancedModal from '@/components/modals/SplitLongLinesAdvancedModal.vue'
 import HardSubtitleModal from '@/components/modals/HardSubtitleModal.vue'
+import SettingsDialog from '@/components/modals/SettingsDialog.vue'
 import { useUIStore } from '@/stores/uiStore'
-import { watch, ref } from 'vue'
 
 const uiStore = useUIStore()
 const hardSubtitleModalRef = ref(null)
@@ -121,7 +122,7 @@ watch(() => uiStore.hardSubtitleModalVisible, (newVal) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: $bg-color;
+  background: transparent;
 }
 
 .main-split {
@@ -156,8 +157,12 @@ watch(() => uiStore.hardSubtitleModalVisible, (newVal) => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  border: 1px solid $border-color;
-  background-color: #fff;
+  border: 1px solid $glass-border;
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
   min-width: 0;
   min-height: 0;
   overflow: hidden;

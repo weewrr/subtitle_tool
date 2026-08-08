@@ -72,11 +72,12 @@ export class ApiService {
     return response.data
   }
 
-  async transcribe(file, model, language, engine = 'openai') {
+  async transcribe(file, model, language, engine = 'openai', useGpu = true) {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('model', model)
     formData.append('engine', engine)
+    formData.append('use_gpu', useGpu ? 'true' : 'false')
     if (language && language !== 'Auto-detect') {
       formData.append('language', language.toLowerCase())
     }
@@ -87,13 +88,18 @@ export class ApiService {
     return response.data
   }
 
-  async getTranscribeStatus() {
-    const response = await api.get('/transcribe/status')
+  async getTranscribeStatus(taskId) {
+    const response = await api.get(`/transcribe/${taskId}`)
     return response.data
   }
 
-  async getTranscribeResult() {
-    const response = await api.get('/transcribe/result')
+  async getTranscribeResult(taskId) {
+    const response = await api.get(`/transcribe/${taskId}/result`)
+    return response.data
+  }
+
+  async cancelTranscribe(taskId) {
+    const response = await api.post(`/transcribe/${taskId}/cancel`)
     return response.data
   }
 
@@ -154,6 +160,62 @@ export class ApiService {
 
   async getNames() {
     const response = await api.get('/spell-check/names')
+    return response.data
+  }
+
+  // ============= 设置 / 诊断 =============
+
+  async getDiagnostics() {
+    const response = await api.get('/diagnostics')
+    return response.data
+  }
+
+  async getDiagnosticText() {
+    const response = await api.get('/diagnostics/text')
+    return response.data
+  }
+
+  async getVersionInfo() {
+    const response = await api.get('/version')
+    return response.data
+  }
+
+  async getHealthCheck() {
+    const response = await api.get('/health')
+    return response.data
+  }
+
+  // ============= 缓存管理 =============
+
+  async getCacheStats() {
+    const response = await api.get('/cache/stats')
+    return response.data
+  }
+
+  async cleanTempAudio() {
+    const response = await api.post('/cache/clean/audio')
+    return response.data
+  }
+
+  async cleanWaveformCache() {
+    const response = await api.post('/cache/clean/waveform')
+    return response.data
+  }
+
+  async cleanTaskResults() {
+    const response = await api.post('/cache/clean/task-results')
+    return response.data
+  }
+
+  // ============= 目录操作 =============
+
+  async openDirectory(type) {
+    const response = await api.post('/open-directory', { type })
+    return response.data
+  }
+
+  async openLogsDirectory() {
+    const response = await api.post('/open-logs')
     return response.data
   }
 
