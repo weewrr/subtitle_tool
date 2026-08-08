@@ -177,8 +177,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: transparent;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
   z-index: 10;
+  transition: all 0.3s ease;
   
   &.vertical {
     width: 6px;
@@ -188,12 +191,12 @@ onUnmounted(() => {
     .splitter-line {
       width: 1px;
       height: 100%;
-      background-color: $border-color;
+      background: $glass-border;
     }
     
     &:hover .splitter-line {
       width: 3px;
-      background-color: #409eff;
+      background: rgba(64, 158, 255, 0.5);
     }
   }
   
@@ -205,17 +208,17 @@ onUnmounted(() => {
     .splitter-line {
       height: 1px;
       width: 100%;
-      background-color: $border-color;
+      background: $glass-border;
     }
     
     &:hover .splitter-line {
       height: 3px;
-      background-color: #409eff;
+      background: rgba(64, 158, 255, 0.5);
     }
   }
   
   &:hover {
-    background-color: rgba(64, 158, 255, 0.1);
+    background: rgba(255, 255, 255, 0.2);
   }
 }
 </style>

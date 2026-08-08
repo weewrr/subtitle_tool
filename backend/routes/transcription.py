@@ -1,7 +1,6 @@
 import os
 import uuid
-import threading
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from backend.services.transcription_service import TranscriptionService
 from backend.utils.temp_dir import get_transcription_temp_dir
@@ -9,38 +8,49 @@ from backend.utils.temp_dir import get_transcription_temp_dir
 transcription_bp = Blueprint('transcription', __name__, url_prefix='/api/transcribe')
 transcription_service = TranscriptionService()
 
-@transcription_bp.route('/status', methods=['GET'])
-def get_transcribe_status():
-    return jsonify(transcription_service.get_status())
-
-@transcription_bp.route('/result', methods=['GET'])
-def get_transcribe_result():
-    result = transcription_service.get_result()
-    if result:
-        return jsonify(result)
-    return jsonify({'error': '没有可用的结果'}), 404
-
 @transcription_bp.route('', methods=['POST'])
 def transcribe_upload():
-    if 'file' not in request.files:
-        return jsonify({'error': '请上传文件'}), 400
-    
-    upload_file = request.files['file']
-    model_name = request.form.get('model', 'base')
-    language = request.form.get('language', None)
-    engine = request.form.get('engine', 'openai')
-    use_gpu = request.form.get('use_gpu', 'true').lower() == 'true'
-    
-    ext = os.path.splitext(upload_file.filename)[1].lower()
-    temp_dir = get_transcription_temp_dir()
-    tmp_path = os.path.join(temp_dir, f"{uuid.uuid4()}{ext}")
-    
-    os.makedirs(temp_dir, exist_ok=True)
-    upload_file.save(tmp_path)
-    
-    if not os.path.exists(tmp_path):
-        return jsonify({'error': '文件保存失败'}), 500
-    
-    transcription_service.transcribe_async(tmp_path, model_name, language, engine, use_gpu)
-    
-    return jsonify({'status': 'started', 'message': '转录任务已启动'})
+    # 支持文件上传或文件路径两种方式
+    file_path = request.form.get('file_path', '')
+    if file_path and os.path.isfile(file_path):
+        path = file_path  # 直接使用已有路径，无需复制
+    elif 'file' in request.files:
+        upload_file = request.files['file']
+        if not upload_file.filename:
+            return jsonify({'error': '文件名不能为空'}), 400
+        ext = os.path.splitext(upload_file.filename)[1].lower()
+        temp_dir = get_transcription_temp_dir(); os.makedirs(temp_dir, exist_ok=True)
+        path = os.path.join(temp_dir, f'{uuid.uuid4()}{ext}')
+        upload_file.save(path)
+    else:
+        return jsonify({'error': '请上传文件或提供文件路径'}), 400
+
+    task = transcription_service.transcribe_async(
+        path,
+        request.form.get('model', 'base'),
+        request.form.get('language'),
+        request.form.get('engine', 'openai'),
+        request.form.get('use_gpu', 'true').lower() == 'true'
+    )
+    return jsonify(task), 202
+
+@transcription_bp.route('/<task_id>', methods=['GET'])
+def get_transcribe_status(task_id):
+    status = transcription_service.get_status(task_id)
+    return (jsonify(status), 200) if status else (jsonify({'error': '任务不存在'}), 404)
+
+@transcription_bp.route('/<task_id>/result', methods=['GET'])
+def get_transcribe_result(task_id):
+    result = transcription_service.get_result(task_id)
+    return (jsonify(result), 200) if result else (jsonify({'error': '结果尚不可用'}), 404)
+
+@transcription_bp.route('/<task_id>/events', methods=['GET'])
+def transcribe_events(task_id):
+    if not transcription_service.get_status(task_id): return jsonify({'error': '任务不存在'}), 404
+    response = Response(stream_with_context(transcription_service.event_stream(task_id)), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'; response.headers['X-Accel-Buffering'] = 'no'
+    return response
+
+@transcription_bp.route('/<task_id>/cancel', methods=['POST'])
+def cancel_transcription(task_id):
+    return (jsonify({'status': 'cancelling'}), 202) if transcription_service.cancel(task_id) else (jsonify({'error': '任务不存在'}), 404)

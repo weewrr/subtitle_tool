@@ -9,6 +9,7 @@ from backend.routes.waveform import waveform_bp
 from backend.routes.tts import tts_bp
 from backend.routes.video import video_bp
 from backend.routes.settings import settings_bp
+from backend.routes.tts_video import tts_video_bp
 
 __all__ = [
     'whisper_bp',
@@ -21,5 +22,6 @@ __all__ = [
     'waveform_bp',
     'tts_bp',
     'video_bp',
-    'settings_bp'
+    'settings_bp',
+    'tts_video_bp'
 ]

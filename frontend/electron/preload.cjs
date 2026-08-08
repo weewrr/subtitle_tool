@@ -10,7 +10,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   selectSubtitleFile: () => ipcRenderer.invoke('select-subtitle-file'),
   selectVideoFile: () => ipcRenderer.invoke('select-video-file'),
-  selectAudioFile: () => ipcRenderer.invoke('select-audio-file')
+  selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
+  // 统一存储桥接
+  storageGet: (key) => ipcRenderer.invoke('storage-get', key),
+  storageSet: (key, value) => ipcRenderer.invoke('storage-set', key, value),
+  storageRemove: (key) => ipcRenderer.invoke('storage-remove', key)
 })
 
 console.log('[preload] electronAPI exposed successfully')

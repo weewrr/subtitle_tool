@@ -19,10 +19,15 @@ const totalCount = computed(() => subtitleStore.paragraphCount)
 
 <style lang="scss" scoped>
 .status-bar {
-  background-color: $bg-color;
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
   padding: 4px 8px;
-  border-top: 1px solid $border-color;
   font-size: $font-size-base;
   text-align: right;
+  color: $text-color;
 }
 </style>

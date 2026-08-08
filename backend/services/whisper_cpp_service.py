@@ -4,6 +4,7 @@ import subprocess
 import threading
 import requests
 import tempfile
+import re
 from backend.config.settings import Config
 from backend.utils.file_utils import format_file_size
 
@@ -138,7 +139,7 @@ class WhisperCppService:
         """检查 Whisper.cpp 是否可用"""
         return os.path.exists(Config.WHISPER_CPP_EXECUTABLE)
 
-    def transcribe(self, audio_path, model_name='ggml-base', language=None):
+    def transcribe(self, audio_path, model_name='ggml-base', language=None, progress_callback=None, is_cancelled=None):
         """使用 Whisper.cpp 转录音频"""
         model_path = os.path.join(Config.WHISPER_CPP_MODEL_DIR, f'{model_name}.bin')
         
@@ -157,18 +158,33 @@ class WhisperCppService:
             '-f', audio_path,
             '-otxt',
             '-osrt',
+            '-pp',
             '-of', os.path.join(output_dir, audio_basename)
         ]
         
         if language:
             cmd.extend(['-l', language])
         
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=Config.WHISPER_CPP_DIR
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            bufsize=1, cwd=Config.WHISPER_CPP_DIR
         )
+        output_lines = []
+        try:
+            for line in process.stdout:
+                output_lines.append(line)
+                if is_cancelled and is_cancelled():
+                    process.terminate()
+                    raise RuntimeError('任务已取消')
+                # --print-progress prints e.g. "progress = 42%".
+                match = re.search(r'(?:progress\s*=\s*)?(\d{1,3})%', line, re.IGNORECASE)
+                if match and progress_callback:
+                    progress_callback(min(100, int(match.group(1))))
+            process.wait()
+        finally:
+            if process.poll() is None:
+                process.kill()
+        result = type('ProcessResult', (), {'returncode': process.returncode, 'stderr': ''.join(output_lines)})()
         
         if result.returncode != 0:
             raise Exception(f'转录失败: {result.stderr}')

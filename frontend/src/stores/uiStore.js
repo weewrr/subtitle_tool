@@ -66,6 +66,18 @@ export const useUIStore = defineStore('ui', () => {
 
   const splitLongLinesAdvancedModalVisible = ref(false)
   const hardSubtitleModalVisible = ref(false)
+  const addTtsToVideoModalVisible = ref(false)
+  const settingsDialogVisible = ref(false)
+  const initialSettingsTab = ref('workspace')
+
+  function showSettingsDialog(tab = 'workspace') {
+    initialSettingsTab.value = tab
+    settingsDialogVisible.value = true
+  }
+
+  function hideSettingsDialog() {
+    settingsDialogVisible.value = false
+  }
 
   function showSpeechRecognitionModal() {
     speechRecognitionModalVisible.value = true
@@ -252,6 +264,14 @@ export const useUIStore = defineStore('ui', () => {
     hardSubtitleModalVisible.value = false
   }
 
+  function showAddTtsToVideoModal() {
+    addTtsToVideoModalVisible.value = true
+  }
+
+  function hideAddTtsToVideoModal() {
+    addTtsToVideoModalVisible.value = false
+  }
+
   return {
     speechRecognitionModalVisible,
     batchProcessingModalVisible,
@@ -282,6 +302,9 @@ export const useUIStore = defineStore('ui', () => {
     splitLongLinesModalVisible,
     splitLongLinesAdvancedModalVisible,
     hardSubtitleModalVisible,
+    addTtsToVideoModalVisible,
+    settingsDialogVisible,
+    initialSettingsTab,
     showSpeechRecognitionModal,
     hideSpeechRecognitionModal,
     showBatchProcessingModal,
@@ -319,6 +342,10 @@ export const useUIStore = defineStore('ui', () => {
     showSplitLongLinesAdvancedModal,
     hideSplitLongLinesAdvancedModal,
     showHardSubtitleModal,
-    hideHardSubtitleModal
+    hideHardSubtitleModal,
+    showAddTtsToVideoModal,
+    hideAddTtsToVideoModal,
+    showSettingsDialog,
+    hideSettingsDialog
   }
 })

@@ -35,6 +35,9 @@
         <el-menu-item index="closeSubtitle" @click="closeSubtitle" :disabled="!hasSubtitle">
           <el-icon><DocumentRemove /></el-icon>关闭字幕
         </el-menu-item>
+        <el-menu-item index="settings" @click="showSettings">
+          <el-icon><Setting /></el-icon>设置
+        </el-menu-item>
         <el-menu-item index="exit" @click="exitApp">
           <el-icon><Close /></el-icon>退出
         </el-menu-item>
@@ -80,16 +83,13 @@
         <el-menu-item index="closeVideo" @click="closeVideo">
           <el-icon><VideoPause /></el-icon>关闭视频文件
         </el-menu-item>
-        <el-menu-item index="generateWaveform" @click="generateWaveform">
-          <el-icon><DataLine /></el-icon>批量生成波形
-        </el-menu-item>
         <el-menu-item index="embedHardSubtitles" @click="embedHardSubtitles" :disabled="!subtitleStore.videoFile || subtitleStore.paragraphCount === 0">
           <el-icon><Film /></el-icon>生成带硬字幕的视频
         </el-menu-item>
         <el-menu-item index="speechRecognition" @click="showSpeechRecognition">
           <el-icon><Microphone /></el-icon>语言识别
         </el-menu-item>
-        <el-menu-item index="addTts" @click="addTtsToVideo">
+        <el-menu-item index="addTts" @click="addTtsToVideo" :disabled="!subtitleStore.videoFile || !subtitleStore.dubbingAudioFile">
           <el-icon><ChatDotRound /></el-icon>文本转语音添加到视频
         </el-menu-item>
       </el-sub-menu>
@@ -403,14 +403,6 @@ function closeVideo() {
   ElMessage.info('已关闭视频')
 }
 
-function generateWaveform() {
-  if (!subtitleStore.videoFile) {
-    ElMessage.warning('请先打开视频文件')
-    return
-  }
-  ElMessage.info('请在波形区域点击生成波形')
-}
-
 function embedHardSubtitles() {
   uiStore.showHardSubtitleModal()
 }
@@ -420,7 +412,15 @@ function showSpeechRecognition() {
 }
 
 function addTtsToVideo() {
-  ElMessage.info('文本转语音添加到视频功能尚未实现')
+  if (!subtitleStore.videoFile) {
+    ElMessage.warning('请先在视频区域打开视频文件')
+    return
+  }
+  if (!subtitleStore.dubbingAudioFile) {
+    ElMessage.warning('请先在文本转语音区域加载配音音频')
+    return
+  }
+  uiStore.showAddTtsToVideoModal()
 }
 
 function showTranslate() {
@@ -442,18 +442,26 @@ function splitLongLines() {
   }
   uiStore.showSplitLongLinesModal()
 }
+
+function showSettings() {
+  uiStore.showSettingsDialog()
+}
 </script>
 
 <style lang="scss" scoped>
 .menu-bar {
-  background-color: $menu-bg;
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
   padding: 2px 4px;
-  border-bottom: 1px solid $border-color;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
   display: flex;
   align-items: center;
 
   :deep(.el-menu) {
-    background-color: transparent;
+    background: transparent;
     border-bottom: none;
     height: 24px;
   }
@@ -464,11 +472,14 @@ function splitLongLines() {
     line-height: 24px;
     font-size: $font-size-base;
     padding: 0 10px;
+    color: $text-color;
+    transition: all 0.3s ease;
   }
 
   :deep(.el-menu-item:hover),
   :deep(.el-sub-menu__title:hover) {
-    background-color: $menu-hover;
+    background: $menu-hover;
+    color: $text-color;
   }
 
   :deep(.el-sub-menu .el-menu-item) {
@@ -492,9 +503,14 @@ function splitLongLines() {
     align-items: center;
     gap: 4px;
     margin-left: auto;
+    color: $text-color;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: $border-radius;
+    transition: all 0.3s ease;
 
     &:hover {
-      background-color: $menu-hover;
+      background: $menu-hover;
+      transform: translateY(-1px);
     }
 
     &.is-disabled {

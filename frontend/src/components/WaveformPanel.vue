@@ -32,10 +32,10 @@
         <el-button size="small" @click="zoomOut" title="缩小"><el-icon><ZoomOut /></el-icon></el-button>
       </el-button-group>
       <el-button-group>
-        <el-button size="small" @click="scrollLeft"><el-icon><DArrowLeft /></el-icon></el-button>
-        <el-button size="small" @click="scrollRight"><el-icon><DArrowRight /></el-icon></el-button>
+        <el-button size="small" @click="scrollLeft" title="放大"><el-icon><ZoomIn /></el-icon></el-button>
+        <el-button size="small" @click="scrollRight" title="缩小"><el-icon><ZoomOut /></el-icon></el-button>
       </el-button-group>
-      <el-slider v-model="progressValue" class="waveform-progress" :format-tooltip="formatTime" />
+      <el-slider v-model="progressValue" class="waveform-progress" :format-tooltip="formatTime" :disabled="isSliderDisabled" />
     </div>
   </div>
 </template>
@@ -72,6 +72,9 @@ const showDubbingWaveform = ref(true)
 
 const ZOOM_MIN = 0.5
 const ZOOM_MAX = 20.0
+
+const hasAnyWaveform = computed(() => hasWaveform.value || hasDubbingWaveform.value)
+const isSliderDisabled = computed(() => !hasAnyWaveform.value)
 
 const fileInfo = computed(() => {
   if (subtitleStore.videoFile) {
@@ -561,8 +564,11 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
 
   .waveform-header {
     padding: 4px 8px;
-    background-color: $bg-color;
-    border-bottom: 1px solid $border-color;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: $glass-blur;
+    -webkit-backdrop-filter: $glass-blur;
+    border: 1px solid $glass-border;
+    border-radius: $border-radius;
     font-size: $font-size-base;
     color: $text-muted;
     display: flex;
@@ -570,7 +576,7 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
     
     .time-info {
       font-family: monospace;
-      color: #409eff;
+      color: $primary-color;
     }
     
     .file-name {
@@ -589,7 +595,7 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
       display: flex;
       flex-direction: column;
       min-height: 0;
-      border-bottom: 1px solid $border-color;
+      border-bottom: 1px solid $glass-border;
       
       &:last-child {
         border-bottom: none;
@@ -599,7 +605,10 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
         padding: 2px 8px;
         font-size: 11px;
         color: $text-muted;
-        background-color: rgba(0, 0, 0, 0.2);
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: $glass-blur;
+        -webkit-backdrop-filter: $glass-blur;
+        border-bottom: 1px solid $glass-border;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -615,7 +624,9 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
       
       .waveform-display {
         flex: 1;
-        background-color: #1a1a2e;
+        background: rgba(26, 26, 46, 0.3);
+        backdrop-filter: $glass-blur;
+        -webkit-backdrop-filter: $glass-blur;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -633,12 +644,14 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
           flex-direction: column;
           align-items: center;
           gap: 4px;
-          color: #666;
+          color: $text-secondary;
           cursor: pointer;
           font-size: 12px;
+          transition: all 0.3s ease;
           
           &:hover {
-            color: #409eff;
+            color: $text-color;
+            transform: scale(1.05);
           }
         }
       }
@@ -647,8 +660,11 @@ watch(() => subtitleStore.selectedParagraphIndex, () => {
 
   .waveform-controls {
     padding: 4px 8px;
-    background-color: $bg-color;
-    border-top: 1px solid $border-color;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: $glass-blur;
+    -webkit-backdrop-filter: $glass-blur;
+    border: 1px solid $glass-border;
+    border-radius: $border-radius;
     display: flex;
     align-items: center;
     gap: 8px;

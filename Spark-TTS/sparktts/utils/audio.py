@@ -24,6 +24,7 @@ import soundfile
 import torch
 import torchaudio
 import numpy as np
+import librosa
 
 from pathlib import Path
 from typing import Tuple
@@ -93,14 +94,23 @@ def load_audio(
     Returns:
         audio (np.ndarray): audio
     """
-
-    audio, sr = soundfile.read(adfile)
-    if len(audio.shape) > 1:
-        audio = audio[:, 0]
-
-    if sampling_rate is not None and sr != sampling_rate:
-        audio = soxr.resample(audio, sr, sampling_rate, quality="VHQ")
-        sr = sampling_rate
+    # Detect file extension to handle MP3 format
+    file_ext = Path(adfile).suffix.lower()
+    
+    # Use librosa for MP3 files (soundfile doesn't support MP3)
+    if file_ext == '.mp3':
+        if sampling_rate is not None:
+            audio, sr = librosa.load(adfile, sr=sampling_rate, mono=True)
+        else:
+            audio, sr = librosa.load(adfile, sr=None, mono=True)
+    else:
+        audio, sr = soundfile.read(adfile)
+        if len(audio.shape) > 1:
+            audio = audio[:, 0]
+        
+        if sampling_rate is not None and sr != sampling_rate:
+            audio = soxr.resample(audio, sr, sampling_rate, quality="VHQ")
+            sr = sampling_rate
 
     if segment_duration is not None:
         seg_length = int(sr * segment_duration)

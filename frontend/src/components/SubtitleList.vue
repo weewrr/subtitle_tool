@@ -77,24 +77,71 @@ watch(() => subtitleStore.selectedParagraphIndex, async (newIndex) => {
 <style lang="scss" scoped>
 .subtitle-list {
   flex: 1;
-  border: 1px solid $border-color;
+  border: 1px solid $glass-border;
   overflow: hidden;
-  background: #fff;
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
 
   :deep(.el-table) {
     font-size: $font-size-base;
+    background: transparent !important;
+    --el-table-bg-color: transparent !important;
+    --el-table-tr-bg-color: transparent !important;
+    --el-table-header-bg-color: rgba(255, 255, 255, 0.1) !important;
+    --el-table-row-hover-bg-color: $hover-bg !important;
+    --el-table-current-row-bg-color: $selected-bg !important;
+    --el-table-border-color: rgba(255, 255, 255, 0.1) !important;
+    --el-table-text-color: $text-color !important;
+    --el-table-header-text-color: $text-color !important;
+    
+    &::before {
+      display: none;
+    }
+    
+    .el-table__inner-wrapper {
+      background: transparent !important;
+    }
+    
+    .el-table__header-wrapper {
+      background: rgba(255, 255, 255, 0.1) !important;
+    }
     
     th {
-      background-color: $menu-hover !important;
+      background: rgba(255, 255, 255, 0.1) !important;
       font-weight: normal;
+      color: $text-color !important;
+      border-bottom: 1px solid $glass-border !important;
+    }
+
+    td {
+      background: transparent !important;
+      color: $text-color !important;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+    
+    .el-table__body-wrapper {
+      background: transparent !important;
+    }
+    
+    .el-table__empty-text {
+      color: $text-muted !important;
     }
 
     .el-table__body tr.current-row > td {
-      background-color: $selected-bg !important;
+      background: $selected-bg !important;
+      color: $text-color !important;
     }
 
     .el-table__body tr:hover > td {
-      background-color: $hover-bg !important;
+      background: $hover-bg !important;
+      color: $text-color !important;
+    }
+    
+    .el-table__empty-block {
+      background: transparent !important;
     }
   }
 
@@ -107,9 +154,11 @@ watch(() => subtitleStore.selectedParagraphIndex, async (newIndex) => {
     padding: 40px;
     cursor: pointer;
     color: $text-muted;
+    transition: all 0.3s ease;
 
     &:hover {
-      color: $primary-color;
+      color: $text-color;
+      transform: scale(1.05);
     }
   }
 }

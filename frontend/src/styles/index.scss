@@ -1,5 +1,59 @@
 @use './variables.scss' as *;
 
+// 主题 CSS 变量
+:root {
+  --app-bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --app-text-color: rgba(255, 255, 255, 0.95);
+  --app-text-secondary: rgba(255, 255, 255, 0.8);
+  --app-text-muted: rgba(255, 255, 255, 0.6);
+  --app-glass-bg: rgba(255, 255, 255, 0.15);
+  --app-glass-border: rgba(255, 255, 255, 0.3);
+  --app-glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  --app-hover-bg: rgba(255, 255, 255, 0.2);
+  --app-selected-bg: rgba(64, 158, 255, 0.3);
+  --app-el-bg: rgba(255, 255, 255, 0.1);
+  --app-el-border: rgba(255, 255, 255, 0.3);
+  --app-menu-bg: rgba(255, 255, 255, 0.1);
+  --app-scrollbar-track: rgba(255, 255, 255, 0.1);
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.3);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="light"] {
+  --app-bg-gradient: linear-gradient(135deg, #e8ecf4 0%, #d5dce8 100%);
+  --app-text-color: #1a1a2e;
+  --app-text-secondary: #4a4a6a;
+  --app-text-muted: #8888aa;
+  --app-glass-bg: rgba(255, 255, 255, 0.78);
+  --app-glass-border: rgba(0, 0, 0, 0.12);
+  --app-glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+  --app-hover-bg: rgba(0, 0, 0, 0.06);
+  --app-selected-bg: rgba(64, 158, 255, 0.15);
+  --app-el-bg: rgba(255, 255, 255, 0.85);
+  --app-el-border: rgba(0, 0, 0, 0.12);
+  --app-menu-bg: rgba(255, 255, 255, 0.85);
+  --app-scrollbar-track: rgba(0, 0, 0, 0.06);
+  --app-scrollbar-thumb: rgba(0, 0, 0, 0.18);
+  --app-scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+
+  // Element Plus CSS 变量
+  --el-text-color-primary: #1a1a2e;
+  --el-text-color-regular: #1a1a2e;
+  --el-text-color-secondary: #4a4a6a;
+  --el-text-color-placeholder: #8888aa;
+  --el-bg-color: #f5f5f8;
+  --el-bg-color-overlay: #ffffff;
+  --el-border-color: rgba(0, 0, 0, 0.12);
+  --el-border-color-light: rgba(0, 0, 0, 0.08);
+  --el-fill-color: rgba(0, 0, 0, 0.05);
+  --el-fill-color-light: rgba(0, 0, 0, 0.03);
+  --el-fill-color-blank: #ffffff;
+  --el-color-primary-light-3: rgba(64, 158, 255, 0.15);
+  --el-color-primary-light-5: rgba(64, 158, 255, 0.25);
+  --el-color-primary-light-7: rgba(64, 158, 255, 0.08);
+  --el-color-primary-light-9: rgba(64, 158, 255, 0.03);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -8,13 +62,55 @@
 }
 
 body {
-  background-color: $bg-color;
+  background: var(--app-bg-gradient);
+  color: var(--app-text-color);
   height: 100vh;
+  overflow: hidden;
+}
+
+.glass {
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
+}
+
+.glass-card {
+  background: $glass-card;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  background: $glass-card-hover;
+  border-color: $glass-border-light;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.45);
+}
+
+.glass-panel {
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
   overflow: hidden;
 }
 
 .el-menu--horizontal {
   border-bottom: none !important;
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
 }
 
 .el-menu--horizontal > .el-menu-item,
@@ -22,18 +118,226 @@ body {
   height: 28px;
   line-height: 28px;
   font-size: $font-size-base;
+  color: $text-color !important;
+  transition: all 0.3s ease;
+}
+
+.el-menu--horizontal > .el-menu-item:hover,
+.el-menu--horizontal > .el-sub-menu .el-sub-menu__title:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
 }
 
 .el-table {
   font-size: $font-size-base !important;
+  background: transparent !important;
+  --el-table-bg-color: transparent !important;
+  --el-table-tr-bg-color: transparent !important;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.1) !important;
+  --el-table-row-hover-bg-color: $hover-bg !important;
+  --el-table-current-row-bg-color: $selected-bg !important;
+  --el-table-border-color: rgba(255, 255, 255, 0.1) !important;
+  --el-table-text-color: $text-color !important;
+  --el-table-header-text-color: $text-color !important;
+  
+  &::before {
+    display: none !important;
+  }
+  
+  .el-table__inner-wrapper {
+    background: transparent !important;
+  }
+  
+  .el-table__header-wrapper {
+    background: rgba(255, 255, 255, 0.1) !important;
+  }
+  
+  .el-table__body-wrapper {
+    background: transparent !important;
+  }
   
   th {
-    background-color: $menu-hover !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: $text-color !important;
+    border-bottom: 1px solid $glass-border !important;
+  }
+  
+  td {
+    background: transparent !important;
+    color: $text-color !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  }
+  
+  tr:hover > td {
+    background: $hover-bg !important;
+    color: $text-color !important;
+  }
+  
+  .el-table__row.current-row > td {
+    background: $selected-bg !important;
+    color: $text-color !important;
+  }
+  
+  .el-table__empty-block {
+    background: transparent !important;
+  }
+  
+  .el-table__empty-text {
+    color: $text-muted !important;
   }
 }
 
 .el-textarea__inner {
   font-family: Arial, sans-serif;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  color: $text-color !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+}
+
+.el-textarea__inner::placeholder {
+  color: $text-muted !important;
+}
+
+.el-input__inner {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: $border-radius !important;
+  color: $text-color !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.el-input__inner::placeholder {
+  color: $text-muted !important;
+}
+
+.el-input__wrapper {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  transition: all 0.3s ease;
+}
+
+.el-input__wrapper:hover {
+  border-color: $glass-border-light !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.el-input__wrapper.is-focus {
+  border-color: rgba(64, 158, 255, 0.5) !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.el-input__prefix,
+.el-input__suffix {
+  color: $text-color !important;
+}
+
+.el-input__wrapper * {
+  background: transparent !important;
+}
+
+.el-input__wrapper.is-focus {
+  border-color: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-input__prefix,
+.el-input__suffix {
+  color: $text-color !important;
+}
+
+.el-select {
+  --el-select-input-focus-border-color: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-select__wrapper {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+}
+
+.el-select__wrapper:hover {
+  border-color: $glass-border-light !important;
+}
+
+.el-select__wrapper.is-focus {
+  border-color: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-select__input {
+  background: transparent !important;
+  color: $text-color !important;
+}
+
+.el-select__input::placeholder {
+  color: $text-muted !important;
+}
+
+.el-select__placeholder {
+  color: $text-secondary !important;
+}
+
+.el-select__selected-item {
+  color: $text-color !important;
+}
+
+.el-select__caret {
+  color: $text-color !important;
+}
+
+.el-button {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  color: $text-color !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  transition: all 0.3s ease;
+}
+
+.el-button:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-color: $glass-border-light !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(31, 38, 135, 0.25);
+}
+
+.el-button--primary {
+  background: rgba(64, 158, 255, 0.3) !important;
+  border-color: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-button--primary:hover {
+  background: rgba(64, 158, 255, 0.4) !important;
+}
+
+.el-dialog {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+}
+
+.el-dialog__header {
+  border-bottom: 1px solid $glass-border !important;
+  color: $text-color !important;
+}
+
+.el-dialog__body {
+  color: $text-color !important;
+}
+
+.el-dialog__title {
+  color: $text-color !important;
 }
 
 ::-webkit-scrollbar {
@@ -42,43 +346,566 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--app-scrollbar-track);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: var(--app-scrollbar-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: var(--app-scrollbar-thumb-hover);
 }
 
-.el-menu--horizontal {
-  .el-menu-item,
-  .el-sub-menu__title {
-    color: $text-color !important;
-  }
-  
-  .el-menu-item:hover,
-  .el-sub-menu__title:hover {
-    color: $text-color !important;
-  }
-  
-  .el-menu-item.is-active,
-  .el-sub-menu.is-active > .el-sub-menu__title {
-    color: $text-color !important;
-    border-bottom-color: transparent !important;
-  }
+.el-sub-menu__title {
+  color: $text-color !important;
+}
+
+.el-sub-menu__title:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
+}
+
+.el-menu--popup .el-sub-menu__title {
+  color: $text-color !important;
+}
+
+.el-menu--popup .el-sub-menu__title:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
+}
+
+.el-menu--horizontal .el-sub-menu .el-sub-menu__title {
+  color: $text-color !important;
+}
+
+.el-menu--horizontal .el-sub-menu .el-sub-menu__title:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
+}
+
+.el-menu--popup .el-menu-item {
+  color: $text-color !important;
+  background: transparent !important;
+}
+
+.el-menu--popup .el-menu-item:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
+}
+
+.el-menu--popup .el-menu-item.is-active {
+  background: $selected-bg !important;
+  color: $text-color !important;
+}
+
+.el-menu--popup .el-sub-menu__title {
+  color: $text-color !important;
+  background: transparent !important;
+}
+
+.el-menu--popup .el-sub-menu__title:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
+}
+
+.el-menu--popup .el-sub-menu.is-active > .el-sub-menu__title {
+  color: $text-color !important;
+  background: $selected-bg !important;
 }
 
 .el-menu--popup {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+}
+
+.el-menu--popup .el-menu {
+  background: transparent !important;
+}
+
+.el-menu__popper {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+  
+  .el-menu {
+    background: transparent !important;
+  }
+  
   .el-menu-item {
+    background: transparent !important;
     color: $text-color !important;
   }
   
   .el-menu-item:hover {
-    background-color: $menu-hover !important;
+    background: $menu-hover !important;
     color: $text-color !important;
+  }
+}
+
+.el-popper.is-light {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+  
+  .el-menu {
+    background: transparent !important;
+  }
+  
+  .el-menu-item {
+    background: transparent !important;
+    color: $text-color !important;
+  }
+  
+  .el-menu-item:hover {
+    background: $menu-hover !important;
+    color: $text-color !important;
+  }
+}
+
+.el-popper {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+  
+  .el-menu {
+    background: transparent !important;
+  }
+  
+  .el-menu-item {
+    background: transparent !important;
+    color: $text-color !important;
+  }
+  
+  .el-menu-item:hover {
+    background: $menu-hover !important;
+    color: $text-color !important;
+  }
+  
+  .el-sub-menu__title {
+    background: transparent !important;
+    color: $text-color !important;
+  }
+  
+  .el-sub-menu__title:hover {
+    background: $menu-hover !important;
+    color: $text-color !important;
+  }
+}
+
+.el-select-dropdown {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+}
+
+.el-select-dropdown__item {
+  background: transparent !important;
+  color: $text-color !important;
+}
+
+.el-select-dropdown__item:hover {
+  background: $menu-hover !important;
+  color: $text-color !important;
+}
+
+.el-select-dropdown__item.selected {
+  background: $selected-bg !important;
+  color: $text-color !important;
+}
+
+.el-select-dropdown__item.is-disabled {
+  color: $text-muted !important;
+  cursor: not-allowed;
+}
+
+.el-select-dropdown__wrap {
+  background: transparent !important;
+}
+
+.el-select-dropdown__list {
+  background: transparent !important;
+}
+
+.el-select-dropdown__list .el-select-dropdown__item {
+  background: transparent !important;
+}
+
+.el-popper {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+}
+
+.el-tabs__item {
+  color: $text-secondary !important;
+  transition: all 0.3s ease;
+  background: transparent !important;
+}
+
+.el-tabs__item:hover {
+  color: $text-color !important;
+  background: $hover-bg !important;
+}
+
+.el-tabs__item.is-active {
+  color: $text-color !important;
+  background: $selected-bg !important;
+}
+
+.el-tabs__active-bar {
+  background: rgba(255, 255, 255, 0.5) !important;
+}
+
+.el-tabs__nav-wrap::after {
+  background: $glass-border !important;
+}
+
+.el-tabs__nav-scroll,
+.el-tabs__nav,
+.el-tabs__nav-wrap,
+.el-tabs--border-card {
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+}
+
+.el-tabs__nav-scroll *,
+.el-tabs__nav *,
+.el-tabs__nav-wrap *,
+.el-tabs--border-card * {
+  background: transparent !important;
+}
+
+.el-tabs__content {
+  background: rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+}
+
+.el-card {
+  background: $glass-bg !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+  box-shadow: $glass-shadow !important;
+}
+
+.el-form {
+  background: transparent !important;
+}
+
+.el-form-item {
+  background: transparent !important;
+  margin-bottom: 24px;
+}
+
+.el-form-item__label {
+  color: $text-color !important;
+}
+
+.el-form-item__content {
+  background: transparent !important;
+}
+
+.el-switch {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid $glass-border !important;
+}
+
+.el-switch.is-checked {
+  background: rgba(64, 158, 255, 0.3) !important;
+  border-color: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-switch__input {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.el-switch__core {
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+.el-slider__runway {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.el-slider__bar {
+  background: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-slider__button {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid $glass-border !important;
+}
+
+.el-slider.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.el-slider.is-disabled .el-slider__runway {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.el-slider.is-disabled .el-slider__bar {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.el-slider.is-disabled .el-slider__button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  cursor: not-allowed;
+}
+
+.el-input-number {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid $glass-border !important;
+  border-radius: $border-radius !important;
+}
+
+.el-input-number__decrease,
+.el-input-number__increase {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid $glass-border !important;
+}
+
+.el-input-number__decrease:hover,
+.el-input-number__increase:hover {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-color: $glass-border-light !important;
+}
+
+.el-radio-group {
+  background: transparent !important;
+}
+
+.el-radio {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid $glass-border !important;
+  color: $text-color !important;
+}
+
+.el-radio.is-checked {
+  background: rgba(64, 158, 255, 0.3) !important;
+  border-color: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-radio__inner {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.el-radio__label {
+  color: $text-color !important;
+}
+
+.el-radio__input {
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.el-card__header {
+  border-bottom: 1px solid $glass-border !important;
+  color: $text-color !important;
+}
+
+.el-card__body {
+  color: $text-color !important;
+}
+
+.el-tag {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border: 1px solid $glass-border !important;
+  color: $text-color !important;
+  backdrop-filter: $glass-blur !important;
+  -webkit-backdrop-filter: $glass-blur !important;
+}
+
+.el-tag--success {
+  background: rgba(103, 194, 58, 0.3) !important;
+  border-color: rgba(103, 194, 58, 0.5) !important;
+}
+
+.el-tag--warning {
+  background: rgba(230, 162, 60, 0.3) !important;
+  border-color: rgba(230, 162, 60, 0.5) !important;
+}
+
+.el-tag--danger {
+  background: rgba(245, 108, 108, 0.3) !important;
+  border-color: rgba(245, 108, 108, 0.5) !important;
+}
+
+.el-progress-bar__inner {
+  background: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-slider__runway {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.el-slider__bar {
+  background: rgba(64, 158, 255, 0.5) !important;
+}
+
+.el-slider__button {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border: 1px solid $glass-border !important;
+}
+
+.el-slider__button:hover {
+  background: rgba(255, 255, 255, 0.5) !important;
+}
+
+// ============ 浅色主题覆盖 ============
+[data-theme="light"] {
+  .el-menu--horizontal {
+    background: var(--app-menu-bg) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-menu--horizontal > .el-menu-item,
+  .el-menu--horizontal > .el-sub-menu .el-sub-menu__title {
+    color: var(--app-text-color) !important;
+  }
+  .el-menu--horizontal > .el-menu-item:hover,
+  .el-menu--horizontal > .el-sub-menu .el-sub-menu__title:hover {
+    background: var(--app-hover-bg) !important;
+  }
+  .el-sub-menu__title { color: var(--app-text-color) !important; }
+  .el-sub-menu__title:hover { background: var(--app-hover-bg) !important; }
+
+  .el-table {
+    --el-table-header-bg-color: rgba(0, 0, 0, 0.05) !important;
+    --el-table-row-hover-bg-color: rgba(0, 0, 0, 0.06) !important;
+    --el-table-current-row-bg-color: rgba(64, 158, 255, 0.15) !important;
+    --el-table-text-color: var(--app-text-color) !important;
+    --el-table-header-text-color: var(--app-text-color) !important;
+  }
+  .el-table th { background: rgba(0, 0, 0, 0.05) !important; color: var(--app-text-color) !important; }
+  .el-table td { color: var(--app-text-color) !important; }
+
+  .el-textarea__inner {
+    background: var(--app-el-bg) !important;
+    border-color: var(--app-el-border) !important;
+    color: var(--app-text-color) !important;
+  }
+  .el-input__wrapper {
+    background: var(--app-el-bg) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-input__wrapper:hover {
+    border-color: rgba(0, 0, 0, 0.25) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+  }
+  .el-select__wrapper {
+    background: var(--app-el-bg) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-select__selected-item { color: var(--app-text-color) !important; }
+
+  .el-button {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: rgba(0, 0, 0, 0.15) !important;
+    color: var(--app-text-color) !important;
+  }
+  .el-button:hover {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: rgba(0, 0, 0, 0.25) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+  .el-button--primary {
+    background: rgba(64, 158, 255, 0.15) !important;
+    border-color: rgba(64, 158, 255, 0.4) !important;
+  }
+  .el-button--primary:hover {
+    background: rgba(64, 158, 255, 0.25) !important;
+  }
+
+  .el-dialog {
+    background: var(--app-glass-bg) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-dialog__header { border-color: var(--app-el-border) !important; color: var(--app-text-color) !important; }
+  .el-dialog__body { color: var(--app-text-color) !important; }
+  .el-dialog__title { color: var(--app-text-color) !important; }
+
+  .el-form-item__label { color: var(--app-text-color) !important; }
+  .el-slider__runway { background: rgba(0, 0, 0, 0.1) !important; }
+  .el-radio { color: var(--app-text-color) !important; }
+  .el-radio__label { color: var(--app-text-color) !important; }
+
+  .el-tabs__item { color: var(--app-text-secondary) !important; }
+  .el-tabs__item:hover { color: var(--app-text-color) !important; background: var(--app-hover-bg) !important; }
+  .el-tabs__item.is-active { color: var(--app-text-color) !important; }
+  .el-tabs__nav-scroll, .el-tabs__nav, .el-tabs__nav-wrap, .el-tabs--border-card {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-tabs__content {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: var(--app-el-border) !important;
+  }
+
+  .el-card {
+    background: var(--app-glass-bg) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-card__header { border-color: var(--app-el-border) !important; color: var(--app-text-color) !important; }
+  .el-card__body { color: var(--app-text-color) !important; }
+
+  .el-select-dropdown {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: var(--app-el-border) !important;
+  }
+  .el-select-dropdown__item { color: var(--app-text-color) !important; }
+  .el-select-dropdown__item:hover { background: var(--app-hover-bg) !important; }
+
+  .el-popper, .el-popper.is-light {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: var(--app-el-border) !important;
+    .el-menu-item { color: var(--app-text-color) !important; }
+    .el-menu-item:hover { background: var(--app-hover-bg) !important; }
+  }
+
+  .el-tag {
+    background: rgba(0, 0, 0, 0.05) !important;
+    border-color: var(--app-el-border) !important;
+    color: var(--app-text-color) !important;
+  }
+
+  .el-switch.is-checked {
+    background: rgba(64, 158, 255, 0.2) !important;
+    border-color: rgba(64, 158, 255, 0.4) !important;
+  }
+
+  // 覆盖组件中的 glass 样式
+  .bottom-left, .bottom-right {
+    background: var(--app-glass-bg) !important;
+    border-color: var(--app-el-border) !important;
   }
 }

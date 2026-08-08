@@ -2,10 +2,14 @@ import os
 import sys
 import subprocess
 import threading
+import tempfile
+import wave
 from backend.config.settings import Config
 from backend.utils.file_utils import format_file_size
 
 class WhisperCTranslate2Service:
+    _model_cache = {}
+    _model_lock = threading.Lock()
     def __init__(self):
         self.download_status = {
             'downloading': False,
@@ -148,7 +152,7 @@ class WhisperCTranslate2Service:
         """获取下载状态"""
         return self.download_status
 
-    def transcribe(self, audio_path, model_name='base', language=None, use_gpu=True):
+    def transcribe(self, audio_path, model_name='base', language=None, use_gpu=True, progress_callback=None, is_cancelled=None, chunk_seconds=15):
         """使用 Whisper-CTranslate2 转录音频"""
         WhisperModel = self._ensure_faster_whisper_installed()
         
@@ -158,32 +162,53 @@ class WhisperCTranslate2Service:
         if use_gpu:
             try:
                 import torch
-                if torch.cuda.is_available():
+                if torch.cuda.is_available() and torch.backends.cudnn.is_available():
                     device = "cuda"
-                    compute_type = "float16"
+                    compute_type = "int8"
             except:
                 pass
         
+        cache_key = (model_name, device, compute_type)
         try:
-            model = WhisperModel(
-                model_name,
-                device=device,
-                compute_type=compute_type,
-                download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR
-            )
+            with self._model_lock:
+                model = self._model_cache.get(cache_key)
+                if model is None:
+                    model = WhisperModel(
+                        model_name,
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR
+                    )
+                    self._model_cache[cache_key] = model
         except Exception as e:
             if device == "cuda":
                 device = "cpu"
                 compute_type = "int8"
-                model = WhisperModel(
-                    model_name,
-                    device=device,
-                    compute_type=compute_type,
-                    download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR
-                )
+                cache_key = (model_name, device, compute_type)
+                with self._model_lock:
+                    model = self._model_cache.get(cache_key)
+                    if model is None:
+                        model = WhisperModel(
+                            model_name,
+                            device=device,
+                            compute_type=compute_type,
+                            download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR
+                        )
+                        self._model_cache[cache_key] = model
             else:
                 raise
         
+        try:
+            srt_content, info = self._transcribe_wav_chunks(model, audio_path, language, progress_callback, is_cancelled, chunk_seconds)
+            return {
+                'srt': srt_content,
+                'language': info.language,
+                'language_probability': info.language_probability
+            }
+        except (wave.Error, EOFError):
+            # Non-WAV inputs retain the engine's native streaming path below.
+            pass
+
         segments, info = model.transcribe(
             audio_path,
             language=language,
@@ -192,7 +217,13 @@ class WhisperCTranslate2Service:
             temperature=0.0
         )
         
-        segments_list = list(segments)
+        segments_list = []
+        for segment in segments:
+            if is_cancelled and is_cancelled():
+                raise RuntimeError('任务已取消')
+            segments_list.append(segment)
+            if progress_callback:
+                progress_callback(segment.end)
         
         srt_content = self._generate_srt_from_segments(segments_list)
         
@@ -201,6 +232,45 @@ class WhisperCTranslate2Service:
             'language': info.language,
             'language_probability': info.language_probability
         }
+
+    def _transcribe_wav_chunks(self, model, audio_path, language, progress_callback, is_cancelled, chunk_seconds):
+        """Run bounded WAV windows so a completed window is a real progress unit."""
+        with wave.open(audio_path, 'rb') as source:
+            rate, channels, sample_width = source.getframerate(), source.getnchannels(), source.getsampwidth()
+            total_frames = source.getnframes()
+            frames_per_chunk = max(rate, rate * chunk_seconds)
+            offset_frames, subtitle_index, blocks, info = 0, 1, [], None
+            while offset_frames < total_frames:
+                if is_cancelled and is_cancelled():
+                    raise RuntimeError('任务已取消')
+                frame_count = min(frames_per_chunk, total_frames - offset_frames)
+                frames = source.readframes(frame_count)
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp:
+                    chunk_path = temp.name
+                try:
+                    with wave.open(chunk_path, 'wb') as output:
+                        output.setnchannels(channels)
+                        output.setsampwidth(sample_width)
+                        output.setframerate(rate)
+                        output.writeframes(frames)
+                    segments, info = model.transcribe(chunk_path, language=language, beam_size=5, best_of=5, temperature=0.0)
+                    offset_seconds = offset_frames / rate
+                    for segment in segments:
+                        if is_cancelled and is_cancelled():
+                            raise RuntimeError('任务已取消')
+                        text = segment.text.strip()
+                        if text:
+                            blocks.extend([str(subtitle_index), f'{self._format_timestamp(segment.start + offset_seconds)} --> {self._format_timestamp(segment.end + offset_seconds)}', text, ''])
+                            subtitle_index += 1
+                finally:
+                    try:
+                        os.unlink(chunk_path)
+                    except OSError:
+                        pass
+                offset_frames += frame_count
+                if progress_callback:
+                    progress_callback(offset_frames / rate)
+        return '\n'.join(blocks), info
 
     def _generate_srt_from_segments(self, segments):
         """从 segments 生成 SRT 内容"""

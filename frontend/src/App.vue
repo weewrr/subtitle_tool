@@ -71,7 +71,9 @@
       <SplitLongLinesModal />
       <SplitLongLinesAdvancedModal />
       <HardSubtitleModal ref="hardSubtitleModalRef" />
+      <AddTtsToVideoModal />
       <SettingsDialog :visible="uiStore.settingsDialogVisible" @update:visible="uiStore.hideSettingsDialog" />
+      <ModelConfigModal />
     </div>
   </el-config-provider>
 </template>
@@ -103,7 +105,9 @@ import MergeSentencesModal from '@/components/modals/MergeSentencesModal.vue'
 import SplitLongLinesModal from '@/components/modals/SplitLongLinesModal.vue'
 import SplitLongLinesAdvancedModal from '@/components/modals/SplitLongLinesAdvancedModal.vue'
 import HardSubtitleModal from '@/components/modals/HardSubtitleModal.vue'
+import AddTtsToVideoModal from '@/components/modals/AddTtsToVideoModal.vue'
 import SettingsDialog from '@/components/modals/SettingsDialog.vue'
+import ModelConfigModal from '@/components/modals/ModelConfigModal.vue'
 import { useUIStore } from '@/stores/uiStore'
 
 const uiStore = useUIStore()

@@ -1,7 +1,8 @@
 const path = require('path')
 const fs = require('fs')
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron')
 const { spawn } = require('child_process')
+const http = require('http')
 
 const isDev = process.argv.includes('--dev')
 const backendUrl = process.env.SUBTITLE_TOOL_BACKEND_URL || 'http://127.0.0.1:5000'
@@ -10,6 +11,26 @@ const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:3000'
 
 let mainWindow = null
 let backendProcess = null
+
+function isBackendHealthy(timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const request = http.get(`${backendUrl}/api/health`, (response) => {
+      response.resume()
+      resolve(response.statusCode === 200)
+    })
+    request.setTimeout(timeoutMs, () => { request.destroy(); resolve(false) })
+    request.on('error', () => resolve(false))
+  })
+}
+
+async function waitForBackend(maxWaitMs = 30000) {
+  const deadline = Date.now() + maxWaitMs
+  while (Date.now() < deadline) {
+    if (await isBackendHealthy()) return true
+    await new Promise(resolve => setTimeout(resolve, 300))
+  }
+  return false
+}
 
 function parseBackendPort(url) {
   try {
@@ -34,7 +55,8 @@ function startBackend() {
     env: {
       ...process.env,
       PYTHONUNBUFFERED: '1',
-      SUBTITLE_TOOL_BACKEND_PORT: backendPort
+      SUBTITLE_TOOL_BACKEND_PORT: backendPort,
+      SUBTITLE_TOOL_BACKEND_DEBUG: isDev ? '1' : '0'
     },
     stdio: 'pipe',
     windowsHide: true
@@ -112,7 +134,7 @@ function createMainWindow() {
     loadDevUrlWithRetry()
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    mainWindow.loadURL('app://./index.html')
   }
 
   mainWindow.webContents.on('did-fail-load', (_event, code, description) => {
@@ -201,10 +223,69 @@ ipcMain.handle('select-audio-file', async () => {
   }
 })
 
+// 统一存储桥接：Electron 主进程持久化，浏览器回退到 localStorage
+function getStoragePath() {
+  return path.join(app.getPath('userData'), 'shared-storage.json')
+}
 
-app.whenReady().then(() => {
+function readStorage() {
+  try {
+    const p = getStoragePath()
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, 'utf-8'))
+    }
+  } catch (e) {
+    console.error('[storage] read error:', e.message)
+  }
+  return {}
+}
+
+function writeStorage(data) {
+  try {
+    const p = getStoragePath()
+    fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8')
+    return true
+  } catch (e) {
+    console.error('[storage] write error:', e.message)
+    return false
+  }
+}
+
+ipcMain.handle('storage-get', async (_event, key) => {
+  const data = readStorage()
+  return key ? (data[key] ?? null) : data
+})
+
+ipcMain.handle('storage-set', async (_event, key, value) => {
+  const data = readStorage()
+  data[key] = value
+  return writeStorage(data)
+})
+
+ipcMain.handle('storage-remove', async (_event, key) => {
+  const data = readStorage()
+  delete data[key]
+  return writeStorage(data)
+})
+
+
+app.whenReady().then(async () => {
   process.env.SUBTITLE_TOOL_BACKEND_URL = backendUrl
-  startBackend()
+
+  // 注册自定义 app:// 协议，确保 Electron 有稳定的 localStorage 源
+  protocol.handle('app', (request) => {
+    const url = request.url.replace('app://./', '')
+    const filePath = path.join(__dirname, '..', 'dist', url)
+    return net.fetch('file://' + filePath)
+  })
+
+  if (!await isBackendHealthy()) {
+    startBackend()
+  }
+  const backendReady = await waitForBackend()
+  if (!backendReady) {
+    console.error(`[backend] did not become ready within 30 seconds: ${backendUrl}`)
+  }
   createMainWindow()
 
   app.on('activate', () => {

@@ -456,6 +456,12 @@ async function exportAudio() {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: $glass-blur;
+    -webkit-backdrop-filter: $glass-blur;
+    border: 1px solid $glass-border;
+    border-radius: $border-radius;
 
     .header-left {
       display: flex;
@@ -488,7 +494,7 @@ async function exportAudio() {
   .progress-text {
     margin-top: 8px;
     font-size: 12px;
-    color: #909399;
+    color: $text-secondary;
     text-align: center;
   }
   
@@ -499,7 +505,7 @@ async function exportAudio() {
     
     .engine-desc, .mode-desc {
       font-size: 11px;
-      color: #909399;
+      color: $text-muted;
     }
   }
 }

@@ -61,20 +61,49 @@ async function startTranscribe() {
   isTranscribing.value = true; progress.value = 0; progressStatus.value = ''; progressText.value = '正在上传文件...'
   try {
     const task = await apiService.transcribe(subtitleStore.videoFile, selectedModel.value, language.value, engine.value, useGpu.value)
+    if (!task || !task.task_id) {
+      throw new Error('后端返回数据异常')
+    }
     taskId = task.task_id
     progressText.value = '任务已启动...'
     openEventStream()
-  } catch (error) { isTranscribing.value = false; ElMessage.error(`识别失败: ${error.message}`) }
+  } catch (error) {
+    isTranscribing.value = false
+    const msg = error.response?.data?.error || error.message || '未知错误'
+    ElMessage.error(`识别失败: ${msg}`)
+  }
 }
 function openEventStream() {
   closeEventStream()
   eventSource = new EventSource(`${getBackendBaseUrl()}/api/transcribe/${taskId}/events`)
   eventSource.onmessage = event => handleStatus(JSON.parse(event.data))
   eventSource.onerror = () => { closeEventStream(); startPolling() }
+  // 30 分钟超时保护
+  setTimeout(() => {
+    if (isTranscribing.value && taskId) {
+      stopTracking()
+      isTranscribing.value = false
+      ElMessage.error('转录任务超时，请重试')
+    }
+  }, 30 * 60 * 1000)
 }
 function startPolling() {
   if (pollTimer) return
-  pollTimer = setInterval(async () => { try { handleStatus(await apiService.getTranscribeStatus(taskId)) } catch (error) { console.error('获取转录进度失败', error) } }, 1000)
+  pollTimer = setInterval(async () => {
+    try {
+      handleStatus(await apiService.getTranscribeStatus(taskId))
+    } catch (error) {
+      if (error.response?.status === 404) {
+        stopTracking()
+        isTranscribing.value = false
+        progressStatus.value = 'exception'
+        progressText.value = '任务已丢失（后端可能已重启）'
+        ElMessage.error('转录任务已丢失，后端可能已重启，请重新开始')
+      } else {
+        console.error('获取转录进度失败', error)
+      }
+    }
+  }, 1000)
 }
 async function handleStatus(status) {
   progress.value = Math.round(status.progress || 0)

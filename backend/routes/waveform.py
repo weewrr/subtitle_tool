@@ -61,7 +61,8 @@ def generate_waveform_from_path():
 def extract_waveform(file_path, samples_per_second=100):
     audio_path = file_path
     
-    if not file_path.lower().endswith(('.wav', '.mp3', '.ogg', '.flac', '.m4a')):
+    # Convert non-WAV files to WAV format (wave module only supports WAV)
+    if not file_path.lower().endswith('.wav'):
         audio_path = os.path.join(get_waveform_temp_dir(), f"{uuid.uuid4()}.wav")
         try:
             result = subprocess.run([
@@ -70,7 +71,7 @@ def extract_waveform(file_path, samples_per_second=100):
                 '-ar', '8000',
                 '-acodec', 'pcm_s16le',
                 audio_path
-            ], capture_output=True, text=True, timeout=60)
+            ], capture_output=True, text=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             
             if result.returncode != 0:
                 return {'error': '音频提取失败: ' + result.stderr}

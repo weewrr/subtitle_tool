@@ -20,15 +20,6 @@
                 <el-option label="跟随系统" value="system" />
               </el-select>
             </el-form-item>
-            <el-form-item label="字体缩放">
-              <el-slider
-                v-model="draft.workspace.fontScale"
-                :min="50" :max="200" :step="5"
-                show-input
-                style="width: 280px"
-              />
-              <span class="unit-hint">%</span>
-            </el-form-item>
             <el-form-item label="自动恢复会话">
               <el-switch v-model="draft.workspace.autoRestoreSession" />
               <span class="hint">启动时恢复上次打开的媒体和字幕</span>
@@ -406,7 +397,15 @@
       <!-- Tab 6: 诊断与关于 -->
       <el-tab-pane label="诊断与关于" name="diagnostics">
         <div class="settings-section">
-          <el-form label-width="120px" size="small">
+          <div v-if="diagnosticsLoading" class="loading-hint">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            正在加载诊断信息...
+          </div>
+          <div v-else-if="diagnosticsError" class="error-hint">
+            <el-alert type="error" :closable="false" :title="diagnosticsError" />
+            <el-button type="primary" size="small" style="margin-top: 8px" @click="loadDiagnosticsData">重试</el-button>
+          </div>
+          <el-form v-else label-width="120px" size="small">
             <el-form-item label="应用版本">
               <span>{{ versionInfo.app_version || '-' }}</span>
             </el-form-item>
@@ -460,10 +459,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { apiService } from '@/services/ApiService'
+import { useUIStore } from '@/stores/uiStore'
 
 const props = defineProps({
   visible: { type: Boolean, default: false }
@@ -471,6 +471,7 @@ const props = defineProps({
 const emit = defineEmits(['update:visible'])
 
 const settingsStore = useSettingsStore()
+const uiStore = useUIStore()
 
 const activeTab = ref('workspace')
 const draft = ref(JSON.parse(JSON.stringify(settingsStore.settings)))
@@ -489,6 +490,8 @@ const cacheStats = ref({ total_mb: 0, temp_audio_mb: 0, temp_waveform_mb: 0, tem
 const versionInfo = ref({})
 const healthStatus = ref('unknown')
 const recentErrors = ref([])
+const diagnosticsLoading = ref(false)
+const diagnosticsError = ref('')
 
 const availableModels = ['tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'medium', 'medium.en', 'large', 'large-v2', 'large-v3']
 
@@ -496,11 +499,17 @@ const availableModels = ['tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.e
 function onOpen() {
   settingsStore.beginEdit()
   draft.value = settingsStore.getEffectiveSettings()
+  activeTab.value = uiStore.initialSettingsTab
   loadEnvInfo()
   loadCacheStats()
-  loadVersionInfo()
-  loadHealthCheck()
 }
+
+// 切换 Tab 时懒加载数据
+watch(activeTab, (tab) => {
+  if (tab === 'diagnostics' && !versionInfo.value.app_version) {
+    loadDiagnosticsData()
+  }
+})
 
 // 加载环境信息
 async function loadEnvInfo() {
@@ -545,8 +554,11 @@ async function loadVersionInfo() {
     const res = await apiService.getVersionInfo()
     if (res.success && res.data) {
       versionInfo.value = res.data
+    } else {
+      diagnosticsError.value = res.message || '获取版本信息失败'
     }
   } catch (e) {
+    diagnosticsError.value = '后端服务未连接，请检查后端是否启动'
     console.error('加载版本信息失败:', e)
   }
 }
@@ -557,10 +569,21 @@ async function loadHealthCheck() {
     const res = await apiService.getHealthCheck()
     if (res.success && res.data) {
       healthStatus.value = res.data.overall ? 'ok' : 'error'
+    } else {
+      healthStatus.value = 'error'
     }
   } catch (e) {
     healthStatus.value = 'error'
+    console.error('健康检查失败:', e)
   }
+}
+
+// 加载诊断信息（版本+健康）
+async function loadDiagnosticsData() {
+  diagnosticsLoading.value = true
+  diagnosticsError.value = ''
+  await Promise.all([loadVersionInfo(), loadHealthCheck()])
+  diagnosticsLoading.value = false
 }
 
 // 运行环境自检
@@ -765,6 +788,12 @@ function handleUpdateVisible(value) {
   .rec-alert {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid $glass-border;
+    :deep(.el-alert__title) {
+      color: $text-color !important;
+    }
+    :deep(.el-alert__content) {
+      color: $text-secondary !important;
+    }
   }
 }
 
@@ -785,6 +814,20 @@ function handleUpdateVisible(value) {
   font-size: $font-size-sm;
   color: $danger-color;
   margin-bottom: 2px;
+}
+
+.loading-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 0;
+  color: $text-secondary;
+  font-size: $font-size-base;
+  justify-content: center;
+}
+
+.error-hint {
+  padding: 20px 0;
 }
 
 :deep(.el-dialog) {
@@ -816,6 +859,11 @@ function handleUpdateVisible(value) {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 16px;
+}
+
+:deep(.el-tabs__nav-wrap) {
+  display: flex;
+  justify-content: center;
 }
 
 :deep(.el-tabs__content) {

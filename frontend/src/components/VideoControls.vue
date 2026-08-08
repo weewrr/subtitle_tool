@@ -201,12 +201,16 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .video-controls {
-  background-color: $bg-color;
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid $border-color;
 
   .el-slider {
     width: 100%;
@@ -229,6 +233,7 @@ onUnmounted(() => {
       margin-left: auto;
       font-size: $font-size-base;
       white-space: nowrap;
+      color: $text-color;
     }
   }
 }

@@ -235,7 +235,12 @@ defineExpose({
 
 <style lang="scss" scoped>
 .video-player {
-  background-color: #1a1a1a;
+  background: $glass-bg;
+  backdrop-filter: $glass-blur;
+  -webkit-backdrop-filter: $glass-blur;
+  border: 1px solid $glass-border;
+  border-radius: $border-radius;
+  box-shadow: $glass-shadow;
   flex: 1;
   display: flex;
   align-items: center;
@@ -243,7 +248,6 @@ defineExpose({
   min-height: 200px;
   cursor: pointer;
   position: relative;
-  border-radius: 4px;
   overflow: hidden;
 
   video {
@@ -256,6 +260,7 @@ defineExpose({
   &:fullscreen {
     width: 100vw;
     height: 100vh;
+    border-radius: 0;
     
     video {
       height: 100%;
@@ -267,7 +272,7 @@ defineExpose({
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    color: #666;
+    color: $text-secondary;
   }
 
   .fullscreen-controls {
@@ -275,7 +280,11 @@ defineExpose({
     bottom: 0;
     left: 0;
     right: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: $glass-blur;
+    -webkit-backdrop-filter: $glass-blur;
+    border: 1px solid $glass-border;
+    border-radius: $border-radius;
     padding: 20px 20px 10px;
     display: flex;
     flex-direction: column;
@@ -296,7 +305,7 @@ defineExpose({
 
       .time {
         margin-left: auto;
-        color: white;
+        color: $text-color;
         font-size: 14px;
         white-space: nowrap;
       }

@@ -74,8 +74,7 @@ class TTSService:
             engines.append({
                 'id': 'spark-tts',
                 'name': 'Spark-TTS (本地)',
-                'model_dir': spark_model,
-                'description': '基于Spark-TTS的声音克隆'
+                'model_dir': spark_model
             })
         
         qwen_model = self.get_qwen_model_dir()
@@ -83,8 +82,7 @@ class TTSService:
             engines.append({
                 'id': 'qwen3-tts',
                 'name': 'Qwen3-TTS (本地)',
-                'model_dir': qwen_model,
-                'description': '基于Qwen3-TTS的声音克隆'
+                'model_dir': qwen_model
             })
         
         return engines

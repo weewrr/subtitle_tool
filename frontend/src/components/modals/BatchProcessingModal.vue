@@ -186,11 +186,11 @@ async function startProcessing() {
       fileItem.status = '处理中...'
       progressText.value = `处理 ${i + 1}/${batchFiles.value.length} - ${fileItem.name}`
 
-      await apiService.transcribe(fileItem.file, selectedModel.value, language.value, engine.value)
+      const task = await apiService.transcribe(fileItem.file, selectedModel.value, language.value, engine.value)
       
       let isComplete = false
       while (!isComplete) {
-        const status = await apiService.getTranscribeStatus()
+        const status = await apiService.getTranscribeStatus(task.task_id)
         progress.value = Math.round(((i + (status.progress || 0) / 100) / batchFiles.value.length) * 100)
         
         if (!status.transcribing) {

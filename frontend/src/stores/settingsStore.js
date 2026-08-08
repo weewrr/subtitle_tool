@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { storageGet, storageSet, storageRemove } from '@/utils/storage'
 
 const STORAGE_KEY = 'subtitle-tool-settings'
+const MODEL_CONFIGS_KEY = 'subtitle-tool-model-configs'
 const SETTINGS_VERSION = 1
 
 // 默认设置
@@ -11,7 +13,6 @@ const getDefaults = () => ({
   // 工作区
   workspace: {
     theme: 'system',           // 'dark' | 'light' | 'system'
-    fontScale: 100,            // 50-200 百分比
     autoRestoreSession: true,  // 自动恢复上次打开的媒体和字幕
     hotkeys: {},               // 快捷键（预留）
     layout: {
@@ -94,13 +95,25 @@ export const useSettingsStore = defineStore('settings', () => {
   const settings = ref(getDefaults())
   const draft = ref(null)    // 草稿对象，编辑期间使用
   const loaded = ref(false)
+  const modelConfigVisible = ref(false)
+  const modelConfigs = ref([])
+  let modelConfigNextId = 1
 
   // 加载设置
-  function loadFromStorage() {
+  async function loadFromStorage() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY)
+      // 优先从统一存储加载（Electron IPC 或浏览器 localStorage）
+      let raw = null
+      try {
+        raw = await storageGet(STORAGE_KEY)
+      } catch { /* 统一存储不可用时回退 */ }
+      
+      if (!raw) {
+        raw = localStorage.getItem(STORAGE_KEY)
+      }
+      
       if (raw) {
-        const parsed = JSON.parse(raw)
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
         if (parsed._version !== SETTINGS_VERSION) {
           migrateSettings(parsed)
         } else {
@@ -113,13 +126,17 @@ export const useSettingsStore = defineStore('settings', () => {
     loaded.value = true
   }
 
-  // 保存设置
-  function saveToStorage(data) {
+  // 保存设置（双写：localStorage + 统一存储）
+  async function saveToStorage(data) {
+    const json = JSON.stringify(data || settings.value)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data || settings.value))
+      localStorage.setItem(STORAGE_KEY, json)
     } catch (e) {
-      console.error('[Settings] 保存设置失败:', e)
+      console.error('[Settings] localStorage 保存失败:', e)
     }
+    try {
+      await storageSet(STORAGE_KEY, JSON.parse(json))
+    } catch { /* 统一存储不可用时忽略 */ }
   }
 
   // 版本迁移
@@ -169,13 +186,15 @@ export const useSettingsStore = defineStore('settings', () => {
   // 应用设置到界面
   function applySettings() {
     applyTheme()
-    applyFontScale()
   }
 
   function applyTheme() {
     const theme = settings.value.workspace.theme
-    const root = document.documentElement
+    updateThemeAttribute(theme)
+  }
 
+  function updateThemeAttribute(theme) {
+    const root = document.documentElement
     if (theme === 'system') {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
       root.setAttribute('data-theme', prefersDark ? 'dark' : 'light')
@@ -184,9 +203,13 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  function applyFontScale() {
-    const scale = settings.value.workspace.fontScale / 100
-    document.documentElement.style.setProperty('--font-scale', scale)
+  // 监听系统主题变化（跟随系统模式下）
+  if (typeof window !== 'undefined') {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (settings.value.workspace.theme === 'system') {
+        updateThemeAttribute('system')
+      }
+    })
   }
 
   // 获取当前设置（优先返回草稿）
@@ -223,13 +246,86 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   // 精确清理设置缓存
-  function clearSettingsCache() {
+  async function clearSettingsCache() {
     localStorage.removeItem(STORAGE_KEY)
+    try { await storageRemove(STORAGE_KEY) } catch { /* ignore */ }
     settings.value = getDefaults()
     applySettings()
   }
 
+  // 模型配置弹窗
+  function showModelConfig() { modelConfigVisible.value = true }
+  function hideModelConfig() { modelConfigVisible.value = false }
+
+  // 模型配置持久化
+  async function loadModelConfigs() {
+    try {
+      let raw = null
+      try {
+        raw = await storageGet(MODEL_CONFIGS_KEY)
+      } catch { /* 回退 */ }
+      
+      if (!raw) {
+        raw = localStorage.getItem(MODEL_CONFIGS_KEY)
+      }
+      
+      if (raw) {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+        modelConfigs.value = parsed.configs || []
+        modelConfigNextId = parsed.nextId || 1
+      }
+    } catch (e) {
+      console.error('[Settings] 加载模型配置失败:', e)
+    }
+  }
+
+  async function saveModelConfigs() {
+    const data = { configs: modelConfigs.value, nextId: modelConfigNextId }
+    const json = JSON.stringify(data)
+    try {
+      localStorage.setItem(MODEL_CONFIGS_KEY, json)
+    } catch (e) {
+      console.error('[Settings] localStorage 保存模型配置失败:', e)
+    }
+    try {
+      await storageSet(MODEL_CONFIGS_KEY, data)
+    } catch { /* 统一存储不可用时忽略 */ }
+  }
+
+  function addModelConfig(config) {
+    modelConfigs.value.push({ id: modelConfigNextId++, ...config })
+    saveModelConfigs()
+  }
+
+  function updateModelConfig(id, data) {
+    const idx = modelConfigs.value.findIndex(c => c.id === id)
+    if (idx !== -1) {
+      modelConfigs.value[idx] = { ...modelConfigs.value[idx], ...data }
+      saveModelConfigs()
+    }
+  }
+
+  function removeModelConfig(id) {
+    modelConfigs.value = modelConfigs.value.filter(c => c.id !== id)
+    saveModelConfigs()
+  }
+
+  // 直接更新识别设置（模型配置弹窗专用，绕过草稿）
+  function updateRecognitionSettings(data) {
+    settings.value.recognition.defaultEngine = data.engine
+    settings.value.recognition.preset = data.preset
+    settings.value.recognition.defaultModel[data.engine] = data.model
+    settings.value.recognition.defaultLanguage = data.language
+    settings.value.recognition.useGpu = data.useGpu
+    settings.value.recognition.vadFilter = data.vadFilter
+    settings.value.recognition.wordTimestamps = data.wordTimestamps
+    saveToStorage()
+  }
+
+  // 异步初始化（不阻塞 store 创建）
   loadFromStorage()
+  loadModelConfigs()
+  applySettings()
 
   return {
     settings,
@@ -244,10 +340,17 @@ export const useSettingsStore = defineStore('settings', () => {
     confirmResetDefaults,
     applySettings,
     applyTheme,
-    applyFontScale,
     getEffectiveSettings,
     getDefaultModel,
     getPresetConfig,
-    clearSettingsCache
+    clearSettingsCache,
+    modelConfigVisible,
+    showModelConfig,
+    hideModelConfig,
+    updateRecognitionSettings,
+    modelConfigs,
+    addModelConfig,
+    updateModelConfig,
+    removeModelConfig
   }
 })

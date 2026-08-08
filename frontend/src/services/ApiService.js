@@ -74,12 +74,18 @@ export class ApiService {
 
   async transcribe(file, model, language, engine = 'openai', useGpu = true) {
     const formData = new FormData()
-    formData.append('file', file)
     formData.append('model', model)
     formData.append('engine', engine)
     formData.append('use_gpu', useGpu ? 'true' : 'false')
     if (language && language !== 'Auto-detect') {
       formData.append('language', language.toLowerCase())
+    }
+
+    // 支持文件路径字符串（Electron）和 File 对象（浏览器）
+    if (typeof file === 'string') {
+      formData.append('file_path', file)
+    } else {
+      formData.append('file', file)
     }
 
     const response = await api.post('/transcribe', formData, {

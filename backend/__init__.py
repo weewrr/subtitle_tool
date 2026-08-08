@@ -13,7 +13,8 @@ from backend.routes import (
     waveform_bp,
     tts_bp,
     video_bp,
-    settings_bp
+    settings_bp,
+    tts_video_bp
 )
 
 def create_app():
@@ -32,6 +33,7 @@ def create_app():
     app.register_blueprint(tts_bp)
     app.register_blueprint(video_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(tts_video_bp)
     
     @app.route('/')
     def index():
