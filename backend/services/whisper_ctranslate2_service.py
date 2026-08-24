@@ -161,11 +161,11 @@ class WhisperCTranslate2Service:
         
         if use_gpu:
             try:
-                import torch
-                if torch.cuda.is_available() and torch.backends.cudnn.is_available():
+                import ctranslate2
+                if ctranslate2.get_cuda_device_count() > 0:
                     device = "cuda"
                     compute_type = "int8"
-            except:
+            except Exception:
                 pass
         
         cache_key = (model_name, device, compute_type)
@@ -177,7 +177,8 @@ class WhisperCTranslate2Service:
                         model_name,
                         device=device,
                         compute_type=compute_type,
-                        download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR
+                        download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR,
+                        local_files_only=True
                     )
                     self._model_cache[cache_key] = model
         except Exception as e:
@@ -192,7 +193,8 @@ class WhisperCTranslate2Service:
                             model_name,
                             device=device,
                             compute_type=compute_type,
-                            download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR
+                            download_root=Config.WHISPER_CTRANSLATE2_MODEL_DIR,
+                            local_files_only=True
                         )
                         self._model_cache[cache_key] = model
             else:

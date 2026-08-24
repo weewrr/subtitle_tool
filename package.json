@@ -1,0 +1,13 @@
+{
+  "name": "subtitle-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "字幕编辑工具 - 一键启动开发环境（前端 + Electron + Python 后端）",
+  "scripts": {
+    "dev": "cd frontend && npm run electron:dev",
+    "electron:dev": "cd frontend && npm run electron:dev",
+    "electron:build": "cd frontend && npm run electron:build",
+    "install:all": "npm --prefix frontend install && pip install -r requirements.txt",
+    "install:frontend": "npm --prefix frontend install"
+  }
+}

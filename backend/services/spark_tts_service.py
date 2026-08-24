@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import subprocess
 import threading
@@ -87,7 +88,7 @@ class TTSService:
         
         return engines
     
-    def generate_subtitle_audio_async(self, subtitles, prompt_speech_path, prompt_text=None, output_dir=None, engine='spark-tts', mode='icl'):
+    def generate_subtitle_audio_async(self, subtitles, prompt_speech_path, prompt_text=None, output_dir=None, engine='spark-tts', mode='icl', video_duration_ms=None):
         if self.status['generating']:
             return {'error': '已有生成任务正在进行中'}
         
@@ -99,16 +100,17 @@ class TTSService:
         print(f"  - prompt_text: {prompt_text}")
         print(f"  - engine: {engine}")
         print(f"  - mode: {mode}")
+        print(f"  - video_duration_ms: {video_duration_ms}")
         
         thread = threading.Thread(
             target=self._generate_thread,
-            args=(subtitles, prompt_speech_path, prompt_text, output_dir, engine, mode)
+            args=(subtitles, prompt_speech_path, prompt_text, output_dir, engine, mode, video_duration_ms)
         )
         thread.start()
         
         return {'status': 'started', 'message': '生成任务已启动'}
     
-    def _generate_thread(self, subtitles, prompt_speech_path, prompt_text, output_dir, engine, mode):
+    def _generate_thread(self, subtitles, prompt_speech_path, prompt_text, output_dir, engine, mode, video_duration_ms=None):
         try:
             self.status['generating'] = True
             self.status['progress'] = 0
@@ -163,10 +165,10 @@ class TTSService:
                 raise RuntimeError(f"参考音频不存在: {prompt_speech_path}")
             
             if engine == 'qwen3-tts':
-                cmd = self._build_qwen_command(srt_file, output_dir, prompt_speech_path, prompt_text, mode)
+                cmd = self._build_qwen_command(srt_file, output_dir, prompt_speech_path, prompt_text, mode, video_duration_ms)
                 cwd = self.get_qwen_tts_root()
             else:
-                cmd = self._build_spark_command(srt_file, output_dir, prompt_speech_path, prompt_text)
+                cmd = self._build_spark_command(srt_file, output_dir, prompt_speech_path, prompt_text, video_duration_ms)
                 cwd = self.get_spark_tts_root()
             
             if cmd is None:
@@ -176,23 +178,42 @@ class TTSService:
             logger.info(f"Running command: {' '.join(cmd)}")
             print(f"[TTS_SERVICE] Running command: {' '.join(cmd)}")
             
+            # 强制子进程以 UTF-8 输出日志，配合 errors='replace' 容错解码，
+            # 避免默认 GBK 解码失败导致读取线程死亡、管道写满、配音脚本永久阻塞
+            child_env = os.environ.copy()
+            child_env['PYTHONIOENCODING'] = 'utf-8'
+            
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
+                encoding='utf-8',
+                errors='replace',
                 cwd=cwd,
                 bufsize=1,
-                universal_newlines=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                env=child_env
             )
+            
+            # 配音脚本输出 "[N/M] 处理字幕" 行，用于解析真实进度
+            progress_pattern = re.compile(r'\[(\d+)/(\d+)\]\s*处理字幕')
             
             def read_output(pipe, log_prefix):
                 try:
                     for line in iter(pipe.readline, ''):
-                        if line:
-                            print(f"[{log_prefix}] {line.strip()}")
-                            logger.info(f"{log_prefix}: {line.strip()}")
+                        line = line.strip()
+                        if not line:
+                            continue
+                        print(f"[{log_prefix}] {line}")
+                        logger.info(f"{log_prefix}: {line}")
+                        m = progress_pattern.search(line)
+                        if m:
+                            current = int(m.group(1))
+                            total = int(m.group(2))
+                            if total > 0 and current > self.status.get('current_subtitle', 0):
+                                self.status['current_subtitle'] = current
+                                self.status['total_subtitles'] = total
+                                self.status['progress'] = min(95, 5 + int(90 * current / total))
                 except Exception as e:
                     print(f"[ERROR] Error reading {log_prefix}: {e}")
                     logger.error(f"Error reading {log_prefix}: {e}")
@@ -213,7 +234,6 @@ class TTSService:
                     self.status['generating'] = False
                     return
                 
-                self._update_progress_from_subtitles(len(subtitles))
                 time.sleep(0.5)
             
             logger.info(f"Process finished with return code: {process.returncode}")
@@ -248,7 +268,7 @@ class TTSService:
             self.status['generating'] = False
             logger.error(f"Subtitle audio generation failed: {e}")
     
-    def _build_spark_command(self, srt_file, output_dir, prompt_speech_path, prompt_text):
+    def _build_spark_command(self, srt_file, output_dir, prompt_speech_path, prompt_text, video_duration_ms=None):
         spark_tts_root = self.get_spark_tts_root()
         model_dir = self.get_spark_model_dir()
         
@@ -269,9 +289,12 @@ class TTSService:
         if prompt_text:
             cmd.extend(['--prompt_text', prompt_text])
         
+        if video_duration_ms and video_duration_ms > 0:
+            cmd.extend(['--video_duration_ms', str(video_duration_ms)])
+        
         return cmd
     
-    def _build_qwen_command(self, srt_file, output_dir, prompt_speech_path, prompt_text, mode='icl'):
+    def _build_qwen_command(self, srt_file, output_dir, prompt_speech_path, prompt_text, mode='icl', video_duration_ms=None):
         qwen_tts_root = self.get_qwen_tts_root()
         model_dir = self.get_qwen_model_dir()
         
@@ -293,15 +316,10 @@ class TTSService:
         if prompt_text:
             cmd.extend(['--prompt_text', prompt_text])
         
+        if video_duration_ms and video_duration_ms > 0:
+            cmd.extend(['--video_duration_ms', str(video_duration_ms)])
+        
         return cmd
-    
-    def _update_progress_from_subtitles(self, total):
-        if total > 0 and self.status['progress'] < 95:
-            current_progress = self.status['progress']
-            if current_progress < 10:
-                self.status['progress'] = 10
-            elif current_progress < 90:
-                self.status['progress'] = min(current_progress + 1, 90)
     
     def _generate_srt_content(self, subtitles):
         lines = []

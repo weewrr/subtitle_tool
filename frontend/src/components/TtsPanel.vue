@@ -280,13 +280,25 @@ async function generateSpeech() {
     console.log('[TtsPanel] Using engine:', ttsEngine.value)
     console.log('[TtsPanel] Using mode:', qwenMode.value)
     
-    const response = await axios.post('/api/tts/generate-subtitles', {
+    const requestBody = {
       subtitles: subtitles,
       prompt_speech_path: promptSpeechPath,
       prompt_text: promptText.value.trim() || null,
       engine: ttsEngine.value,
       mode: qwenMode.value
-    })
+    }
+    
+    // 视频时长（配音总长超过视频长度时，配音脚本会整体加速压回视频长度）：
+    // 优先从播放器 video 元素读取真实时长（浏览器/Electron 通用），
+    // Electron 模式下同时传路径供后端 ffprobe 兜底
+    if (subtitleStore.videoElement && subtitleStore.videoElement.duration > 0) {
+      requestBody.video_duration_ms = Math.round(subtitleStore.videoElement.duration * 1000)
+    }
+    if (typeof subtitleStore.videoFile === 'string') {
+      requestBody.video_path = subtitleStore.videoFile
+    }
+    
+    const response = await axios.post('/api/tts/generate-subtitles', requestBody)
     
     if (response.data.success && response.data.status === 'started') {
       progressText.value = '正在生成语音...'
@@ -314,7 +326,11 @@ function startStatusPolling() {
       if (status.status === 'preparing') {
         progressText.value = '正在准备...'
       } else if (status.status === 'generating') {
-        progressText.value = '正在生成语音...'
+        const cur = status.current_subtitle || 0
+        const total = status.total_subtitles || 0
+        progressText.value = (total > 0 && cur > 0)
+          ? `正在合成第 ${cur}/${total} 段...`
+          : '正在加载模型...'
       } else if (status.status === 'completed') {
         stopStatusPolling()
         progressText.value = '正在获取结果...'
@@ -323,9 +339,12 @@ function startStatusPolling() {
           const resultResponse = await axios.get('/api/tts/result')
           if (resultResponse.data.success) {
             const outputPath = resultResponse.data.output_path
-            generatedAudioUrl.value = getBackendBaseUrl() + '/api/tts/download/' + encodeURIComponent(outputPath.split(/[/\\]/).pop()) + '?t=' + Date.now()
+            // 将生成的音频设置为当前配音文件：
+            // 1) 触发 dubbingAudioFile watch 自动生成播放地址
+            // 2) 使配音波形与"添加到视频"立即可用（与手动导入音频行为一致）
+            subtitleStore.setDubbingAudioFile(outputPath)
             progressText.value = '生成完成'
-            ElMessage.success('语音生成成功')
+            ElMessage.success('语音生成成功，配音波形与添加到视频已就绪')
           } else {
             ElMessage.error('获取结果失败')
           }

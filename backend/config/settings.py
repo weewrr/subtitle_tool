@@ -6,6 +6,11 @@ class Config:
     PORT = int(os.environ.get('SUBTITLE_TOOL_BACKEND_PORT', 5000))
     DEBUG = os.environ.get('SUBTITLE_TOOL_BACKEND_DEBUG', '1') == '1'
     
+    # 翻译：时长约束（duration-aware translation），默认开启。
+    # 关闭后（设为 0/false/no/off 或环境变量 TRANSLATION_DURATION_CONSTRAINT_ENABLED=false）
+    # 恢复原来的翻译 Prompt 行为，不向模型注入 duration。
+    TRANSLATION_DURATION_CONSTRAINT_ENABLED = os.environ.get('TRANSLATION_DURATION_CONSTRAINT_ENABLED', 'true').lower() not in ('0', 'false', 'no', 'off')
+    
     # 文件路径配置
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     ORIGINAL_SUBTITLE_DIR = os.path.join(BASE_DIR, 'OriginalSubtitle')

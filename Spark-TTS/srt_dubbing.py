@@ -148,6 +148,8 @@ def main():
     parser.add_argument("--speed", type=str, default="moderate",
                         choices=["very_low", "low", "moderate", "high", "very_high"],
                         help="语速")
+    parser.add_argument("--video_duration_ms", type=float, default=None,
+                        help="(兼容保留参数，当前未使用)")
     
     args = parser.parse_args()
     

@@ -1,5 +1,6 @@
 import os
 import io
+import subprocess
 import soundfile as sf
 from flask import Blueprint, request, jsonify, send_file
 from backend.services.spark_tts_service import spark_tts_service
@@ -7,6 +8,31 @@ from backend.utils.temp_dir import get_tts_temp_dir
 from backend.config.settings import Config
 
 tts_bp = Blueprint('tts', __name__, url_prefix='/api/tts')
+
+def _get_video_duration_ms(video_path):
+    """
+    用 ffprobe 获取视频/音频文件时长（毫秒）。
+    失败或路径无效时返回 None（配音脚本将跳过整体变速）。
+    """
+    if not video_path or not isinstance(video_path, str) or not os.path.exists(video_path):
+        return None
+    try:
+        result = subprocess.run(
+            [
+                'ffprobe', '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                video_path
+            ],
+            capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+        if result.returncode != 0:
+            return None
+        duration_s = float(result.stdout.strip())
+        return int(duration_s * 1000)
+    except (ValueError, OSError):
+        return None
 
 def get_speech_dir():
     """获取 speech 目录路径"""
@@ -176,6 +202,20 @@ def generate_subtitle_audio():
         prompt_text = data.get('prompt_text')
         engine = data.get('engine', 'spark-tts')
         mode = data.get('mode', 'icl')
+        video_path = data.get('video_path')
+        # 配音总长超过视频长度时，配音脚本会整体加速压回视频长度。
+        # 时长来源优先级：
+        # 1) 前端从播放器 video 元素读取的时长（精确，浏览器/Electron 通用）
+        # 2) ffprobe 从视频路径提取（Electron 路径模式）
+        # 3) 最后一条字幕的结束时间（永远可用：字幕来自视频识别时即近似视频长度，
+        #    配音超出该末端说明时间轴放不下，压回该末端语义正确）
+        video_duration_ms = data.get('video_duration_ms') or _get_video_duration_ms(video_path)
+        if not video_duration_ms and subtitles:
+            try:
+                video_duration_ms = max(int(s.get('end_time', 0)) for s in subtitles)
+                print(f"[TTS ROUTE] using last subtitle end as duration: {video_duration_ms} ms")
+            except (TypeError, ValueError):
+                video_duration_ms = None
         
         print(f"\n{'='*60}")
         print(f"[TTS ROUTE] Received request from frontend:")
@@ -184,6 +224,7 @@ def generate_subtitle_audio():
         print(f"  - prompt_text: {prompt_text}")
         print(f"  - engine: {engine}")
         print(f"  - mode: {mode}")
+        print(f"  - video_path: {video_path}")
         print(f"{'='*60}\n")
         
         if not subtitles:
@@ -204,12 +245,20 @@ def generate_subtitle_audio():
                 'error': f'参考音频不存在: {prompt_speech_path}'
             }), 400
         
+        # 配音总长超过视频长度时，配音脚本会整体加速压回视频长度。
+        # video_duration_ms 已在上方按「前端播放器值 → ffprobe 路径 → 字幕末端」的
+        # 优先级确定，此处不可再用 ffprobe 覆盖，否则浏览器模式下（无 video_path）
+        # 会把它重置为 None，导致整体变速失效。
+        if video_duration_ms:
+            print(f"[TTS ROUTE] final video_duration_ms for tempo: {video_duration_ms} ms")
+        
         result = spark_tts_service.generate_subtitle_audio_async(
             subtitles,
             prompt_speech_path=prompt_speech_path,
             prompt_text=prompt_text,
             engine=engine,
-            mode=mode
+            mode=mode,
+            video_duration_ms=video_duration_ms
         )
         
         if 'error' in result:

@@ -8,7 +8,6 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron": "electron ./electron/main.cjs",
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1 --port 3000\" \"wait-on http-get://127.0.0.1:3000 && electron ./electron/main.cjs --dev\"",
     "electron:build": "vite build && electron-builder",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",

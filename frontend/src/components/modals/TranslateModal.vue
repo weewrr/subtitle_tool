@@ -8,8 +8,10 @@
     :show-close="!isTranslating || stopRequested"
   >
     <div class="translate-controls">
-      <el-select v-model="engine" style="width: 150px">
+      <el-select v-model="engine" style="width: 170px" @change="onEngineChange">
         <el-option label="Ollama (local LLM)" value="ollama" />
+        <el-option label="DeepSeek" value="deepseek" />
+        <el-option label="阿里百炼 (Qwen)" value="bailian" />
       </el-select>
       <span>自:</span>
       <el-select v-model="fromLang" style="width: 120px">
@@ -68,32 +70,27 @@
     <el-divider />
 
     <el-form label-width="40px" size="small" inline>
-      <el-form-item label="Url">
+      <el-form-item v-if="engine === 'ollama'" label="Url">
         <el-input v-model="apiUrl" style="width: 280px" placeholder="http://localhost:11434/api/chat/" />
       </el-form-item>
+      <el-form-item v-if="needsApiKey" label="Key">
+        <el-input
+          v-model="apiKey"
+          type="password"
+          show-password
+          style="width: 280px"
+          :placeholder="engine === 'deepseek' ? 'DeepSeek API Key (sk-...)' : '百炼 API Key (sk-...)'" />
+      </el-form-item>
       <el-form-item label="模型">
-        <el-select v-model="modelName" style="width: 160px">
-          <el-option label="gpt-oss:120b-cloud" value="gpt-oss:120b-cloud" />
-          <el-option label="gpt-oss:20b-cloud" value="gpt-oss:20b-cloud" />
-          <el-option label="deepseek-v3.1:671b-cloud" value="deepseek-v3.1:671b-cloud" />
-          <el-option label="qwen3-coder:480b-cloud" value="qwen3-coder:480b-cloud" />
-          <el-option label="qwen3-vl:235b-cloud" value="qwen3-vl:235b-cloud" />
-          <el-option label="minimax-m2:cloud" value="minimax-m2:cloud" />
-          <el-option label="glm-4.6:cloud" value="glm-4.6:cloud" />
-          <el-option label="gpt-oss:120b" value="gpt-oss:120b" />
-          <el-option label="gpt-oss:20b" value="gpt-oss:20b" />
-          <el-option label="gemma3:27b" value="gemma3:27b" />
-          <el-option label="gemma3:12b" value="gemma3:12b" />
-          <el-option label="gemma3:4b" value="gemma3:4b" />
-          <el-option label="gemma3:1b" value="gemma3:1b" />
-          <el-option label="deepseek-r1:8b" value="deepseek-r1:8b" />
-          <el-option label="qwen3-coder:30b" value="qwen3-coder:30b" />
-          <el-option label="qwen3-vl:30b" value="qwen3-vl:30b" />
-          <el-option label="qwen3-vl:8b" value="qwen3-vl:8b" />
-          <el-option label="qwen3-vl:4b" value="qwen3-vl:4b" />
-          <el-option label="qwen3:30b" value="qwen3:30b" />
-          <el-option label="qwen3:8b" value="qwen3:8b" />
-          <el-option label="qwen3:4b" value="qwen3:4b" />
+        <el-select
+          v-model="modelName"
+          style="width: 220px"
+          :filterable="modelEditable"
+          :allow-create="modelEditable"
+          :default-first-option="modelEditable"
+          :placeholder="engine === 'deepseek' ? 'deepseek-chat' : 'qwen-plus'"
+        >
+          <el-option v-for="m in engineModels" :key="m.value" :label="m.label" :value="m.value" />
         </el-select>
       </el-form-item>
     </el-form>
@@ -127,18 +124,85 @@ const visible = computed({
   }
 })
 
-const engine = ref('ollama')
+const ENGINE_MODEL_OPTIONS = {
+  ollama: [
+    { label: 'gpt-oss:120b-cloud', value: 'gpt-oss:120b-cloud' },
+    { label: 'gpt-oss:20b-cloud', value: 'gpt-oss:20b-cloud' },
+    { label: 'deepseek-v3.1:671b-cloud', value: 'deepseek-v3.1:671b-cloud' },
+    { label: 'qwen3-coder:480b-cloud', value: 'qwen3-coder:480b-cloud' },
+    { label: 'qwen3-vl:235b-cloud', value: 'qwen3-vl:235b-cloud' },
+    { label: 'minimax-m2:cloud', value: 'minimax-m2:cloud' },
+    { label: 'glm-4.6:cloud', value: 'glm-4.6:cloud' },
+    { label: 'gpt-oss:120b', value: 'gpt-oss:120b' },
+    { label: 'gpt-oss:20b', value: 'gpt-oss:20b' },
+    { label: 'gemma3:27b', value: 'gemma3:27b' },
+    { label: 'gemma3:12b', value: 'gemma3:12b' },
+    { label: 'gemma3:4b', value: 'gemma3:4b' },
+    { label: 'gemma3:1b', value: 'gemma3:1b' },
+    { label: 'deepseek-r1:8b', value: 'deepseek-r1:8b' },
+    { label: 'qwen3-coder:30b', value: 'qwen3-coder:30b' },
+    { label: 'qwen3-vl:30b', value: 'qwen3-vl:30b' },
+    { label: 'qwen3-vl:8b', value: 'qwen3-vl:8b' },
+    { label: 'qwen3-vl:4b', value: 'qwen3-vl:4b' },
+    { label: 'qwen3:30b', value: 'qwen3:30b' },
+    { label: 'qwen3:8b', value: 'qwen3:8b' },
+    { label: 'qwen3:4b', value: 'qwen3:4b' }
+  ],
+  deepseek: [
+    { label: 'deepseek-chat (V3)', value: 'deepseek-chat' },
+    { label: 'deepseek-reasoner (R1)', value: 'deepseek-reasoner' }
+  ],
+  bailian: [
+    { label: 'qwen-plus', value: 'qwen-plus' },
+    { label: 'qwen-turbo', value: 'qwen-turbo' },
+    { label: 'qwen-max', value: 'qwen-max' },
+    { label: 'qwen-flash', value: 'qwen-flash' }
+  ]
+}
+const ENGINE_DEFAULT_MODEL = {
+  ollama: 'gemma3:1b',
+  deepseek: 'deepseek-chat',
+  bailian: 'qwen-plus'
+}
+
+const engine = ref(localStorage.getItem('translateEngine') || 'ollama')
 const fromLang = ref('en')
 const toLang = ref('zh')
 const apiUrl = ref('http://localhost:11434/api/chat/')
-const modelName = ref('gemma3:1b')
+const modelName = ref(
+  localStorage.getItem(`translateModel_${engine.value}`) || ENGINE_DEFAULT_MODEL[engine.value] || 'gemma3:1b'
+)
+const apiKey = ref(localStorage.getItem(`translateApiKey_${engine.value}`) || '')
 const isTranslating = ref(false)
 const stopRequested = ref(false)
 const originalSubtitles = ref([])
 const translatedSubtitles = ref([])
 
+const needsApiKey = computed(() => engine.value === 'deepseek' || engine.value === 'bailian')
+const modelEditable = computed(() => engine.value === 'deepseek' || engine.value === 'bailian')
+const engineModels = computed(() => ENGINE_MODEL_OPTIONS[engine.value] || ENGINE_MODEL_OPTIONS.ollama)
+
+function onEngineChange() {
+  modelName.value = localStorage.getItem(`translateModel_${engine.value}`) || ENGINE_DEFAULT_MODEL[engine.value] || 'gemma3:1b'
+  apiKey.value = localStorage.getItem(`translateApiKey_${engine.value}`) || ''
+  localStorage.setItem('translateEngine', engine.value)
+}
+
+watch(apiKey, (v) => {
+  if (needsApiKey.value && v) {
+    localStorage.setItem(`translateApiKey_${engine.value}`, v)
+  }
+})
+
+watch(modelName, (v) => {
+  if (v) {
+    localStorage.setItem(`translateModel_${engine.value}`, v)
+  }
+})
+
 watch(visible, (val) => {
   if (val) {
+    apiKey.value = localStorage.getItem(`translateApiKey_${engine.value}`) || ''
     originalSubtitles.value = subtitleStore.currentSubtitle.paragraphs.map(p => ({
       number: p.number,
       startTime: p.startTime,
@@ -168,6 +232,11 @@ async function startTranslate() {
     return
   }
 
+  if (needsApiKey.value && !apiKey.value.trim()) {
+    ElMessage.error('请先填写该翻译引擎的 API Key')
+    return
+  }
+
   isTranslating.value = true
   stopRequested.value = false
 
@@ -184,13 +253,20 @@ async function startTranslate() {
       }
 
       const item = originalSubtitles.value[i]
-      
+
+      // 原文在视频中的实际语音时长（秒），用于时长感知翻译
+      const durationSeconds = item.duration && typeof item.duration.totalMilliseconds === 'number'
+        ? Math.round((item.duration.totalMilliseconds / 1000) * 100) / 100
+        : null
+
       const result = await apiService.translate({
         text: item.text,
         from: fromLang.value,
         to: toLang.value,
         engine: engine.value,
-        model: modelName.value
+        model: modelName.value,
+        duration: durationSeconds,
+        api_key: needsApiKey.value ? apiKey.value.trim() : undefined
       })
 
       if (result.error) {

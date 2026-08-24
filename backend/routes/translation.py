@@ -14,6 +14,8 @@ def translate_text():
     engine = data.get('engine', 'ollama')
     model = data.get('model', 'gemma3:1b')
     prompt_template = data.get('prompt_template', None)
+    duration = data.get('duration', None)
+    api_key = data.get('api_key', None)
     temperature = data.get('temperature', 0.0)
     max_tokens = data.get('max_tokens', 2048)
     keep_formatting = data.get('keep_formatting', True)
@@ -23,7 +25,8 @@ def translate_text():
         return jsonify({'error': '请提供要翻译的文本'}), 400
     
     result = translation_service.translate(text, from_lang, to_lang, engine, model,
-                                          prompt_template, temperature, max_tokens, keep_formatting, task)
+                                          prompt_template, temperature, max_tokens, keep_formatting, task,
+                                          duration=duration, api_key=api_key)
     return jsonify(result)
 
 @translation_bp.route('/async', methods=['POST'])

@@ -81,40 +81,36 @@ def generate_silence(duration_ms, sample_rate=SAMPLE_RATE):
     return np.zeros(samples, dtype=np.float32)
 
 
-def stretch_audio_ffmpeg(input_path, output_path, target_duration_ms, actual_duration_ms, sample_rate=SAMPLE_RATE):
+def trim_silence(wav, sample_rate, threshold=0.01):
+    """裁剪音频首尾静音，尽量挤压静音区间（保留少量首尾余量防止切音）"""
+    if len(wav) == 0:
+        return wav
+    non_silent = np.where(np.abs(wav) > threshold)[0]
+    if len(non_silent) == 0:
+        return wav
+    head_margin = int(0.02 * sample_rate)
+    tail_margin = int(0.05 * sample_rate)
+    start = max(0, int(non_silent[0]) - head_margin)
+    end = min(len(wav), int(non_silent[-1]) + 1 + tail_margin)
+    return wav[start:end]
+
+
+def apply_global_tempo_ffmpeg(wav, tempo, temp_dir, sample_rate=SAMPLE_RATE):
     """
-    使用ffmpeg进行音频变速处理
-    tempo = actual_duration / target_duration
-    - tempo > 1: 加速 (音频比目标长)
-    - tempo < 1: 减速 (音频比目标短)
+    全局变速（变速不变调）：配音总长超过视频长度时，
+    将整条配音按 tempo 压缩回视频长度。atempo 接受任意小数倍速（如 1.437）。
+    失败时返回原音频。
     """
-    if actual_duration_ms <= 0 or target_duration_ms <= 0:
-        return False
-    
-    tempo = actual_duration_ms / target_duration_ms
-    
-    if abs(tempo - 1.0) < 0.01:
-        import shutil
-        shutil.copy(input_path, output_path)
-        return True
-    
-    min_tempo = 0.5
-    max_tempo = 2.0
-    
-    if tempo < min_tempo:
-        logger.warning(f"变速倍数 {tempo:.3f} 过小，限制为 {min_tempo}")
-        tempo = min_tempo
-    elif tempo > max_tempo:
-        logger.warning(f"变速倍数 {tempo:.3f} 过大，限制为 {max_tempo}")
-        tempo = max_tempo
+    in_path = os.path.join(temp_dir, 'global_pre_tempo.wav')
+    out_path = os.path.join(temp_dir, 'global_post_tempo.wav')
+    sf.write(in_path, wav, sample_rate)
     
     cmd = [
-        'ffmpeg',
-        '-y',
-        '-i', input_path,
-        '-filter:a', f'atempo={tempo}',
+        'ffmpeg', '-y',
+        '-i', in_path,
+        '-filter:a', f'atempo={tempo:.6f}',
         '-ar', str(sample_rate),
-        output_path
+        out_path
     ]
     
     try:
@@ -125,12 +121,15 @@ def stretch_audio_ffmpeg(input_path, output_path, target_duration_ms, actual_dur
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
         if result.returncode != 0:
-            logger.error(f"ffmpeg变速失败: {result.stderr}")
-            return False
-        return True
+            logger.error(f"ffmpeg全局变速失败: {result.stderr}")
+            return wav
+        out_wav, _ = sf.read(out_path)
+        if out_wav.dtype != np.float32:
+            out_wav = out_wav.astype(np.float32)
+        return out_wav
     except FileNotFoundError:
         logger.error("ffmpeg未找到，请确保已安装并添加到PATH")
-        return False
+        return wav
 
 
 def detect_language(text):
@@ -159,6 +158,8 @@ def main():
     parser.add_argument("--device", type=int, default=0, help="CUDA设备编号")
     parser.add_argument("--prompt_speech_path", type=str, required=True,
                         help="参考音频路径")
+    parser.add_argument("--video_duration_ms", type=float, default=None,
+                        help="视频总时长（毫秒），配音总长超过时整体加速压回视频长度")
     parser.add_argument("--prompt_text", type=str, default=None,
                         help="参考音频文本")
     parser.add_argument("--mode", type=str, default="icl",
@@ -192,7 +193,11 @@ def main():
     logger.info(f"共找到 {len(subtitles)} 条字幕")
     
     device = f"cuda:{args.device}" if torch.cuda.is_available() else "cpu"
-    logger.info(f"使用设备: {device}")
+    # 打印实际设备名，便于确认运行在独显而非核显（CUDA 只索引 NVIDIA GPU）
+    device_desc = device
+    if device.startswith("cuda"):
+        device_desc += f" ({torch.cuda.get_device_name(device)})"
+    logger.info(f"使用设备: {device_desc}")
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     qwen_tts_dir = os.path.normpath(os.path.join(script_dir, '..', 'Qwen3-TTS'))
@@ -237,6 +242,9 @@ def main():
     audio_segments = []
     current_position_ms = 0
     
+    # 配音过长时允许提前起始、借用前方静音的最大时长
+    MAX_LEAD_MS = 1000
+    
     gen_kwargs = dict(
         max_new_tokens=2048,
         do_sample=True,
@@ -246,87 +254,111 @@ def main():
         repetition_penalty=1.05,
     )
     
-    for i, sub in enumerate(subtitles):
-        logger.info(f"[{i+1}/{len(subtitles)}] 处理字幕: {sub['text'][:30]}...")
+    # ===== 阶段一：批量生成所有配音段（提速关键）=====
+    # Qwen3-TTS 的 generate_voice_clone 原生支持批量：一次 generate 同时生成多段，
+    # 将逐段生成的调度/启动开销摊薄到 batch 内，GPU 利用率显著提升。
+    # 参考音频（voice_clone_prompt）只有一份，generate 内部会按 batch 大小自动复制。
+    # 显存不足(OOM)时可将 BATCH_SIZE 调小（如 2）。
+    BATCH_SIZE = 4
+    wavs = [None] * len(subtitles)
+    
+    for batch_start in range(0, len(subtitles), BATCH_SIZE):
+        batch = subtitles[batch_start:batch_start + BATCH_SIZE]
+        texts = [s['text'] for s in batch]
+        languages = [detect_language(s['text']) for s in batch]
+        logger.info(f"批量生成第 {batch_start+1}-{batch_start+len(batch)} 段（共 {len(subtitles)} 段）...")
         
-        if sub['start_time'] > current_position_ms:
-            gap_duration = sub['start_time'] - current_position_ms
-            silence = generate_silence(gap_duration)
-            audio_segments.append(silence)
-            logger.info(f"  添加 {gap_duration}ms 静音间隙")
-            current_position_ms = sub['start_time']
-        
+        batch_wavs = None
+        batch_sr = SAMPLE_RATE
         try:
-            language = detect_language(sub['text'])
-            
-            wavs, sr = model.generate_voice_clone(
-                text=sub['text'],
-                language=language,
+            batch_wavs, batch_sr = model.generate_voice_clone(
+                text=texts,
+                language=languages,
                 voice_clone_prompt=voice_clone_prompt,
                 **gen_kwargs,
             )
-            
-            wav = wavs[0]
+        except Exception as e:
+            logger.warning(f"  批量生成失败({e})，逐段重试本批...")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            batch_wavs = []
+            for t, l in zip(texts, languages):
+                try:
+                    w, _ = model.generate_voice_clone(
+                        text=t,
+                        language=l,
+                        voice_clone_prompt=voice_clone_prompt,
+                        **gen_kwargs,
+                    )
+                    batch_wavs.append(w[0] if (w and len(w) > 0) else None)
+                except Exception:
+                    batch_wavs.append(None)
+        
+        for j, w in enumerate(batch_wavs):
+            idx = batch_start + j
+            if w is None:
+                logger.error(f"  [{idx+1}/{len(subtitles)}] 生成失败，该段保持静音")
+                wavs[idx] = None
+                continue
+            wav = w
+            if isinstance(wav, torch.Tensor):
+                wav = wav.detach().cpu().numpy()
             if wav.dtype != np.float32:
                 wav = wav.astype(np.float32)
-            
-            actual_duration_ms = len(wav) / sr * 1000
-            target_duration_ms = sub['duration']
-            
-            tempo = actual_duration_ms / target_duration_ms
-            
-            if tempo > 1.01:
-                original_path = os.path.join(temp_dir, f'original_{sub["index"]:03d}.wav')
-                stretched_path = os.path.join(temp_dir, f'stretched_{sub["index"]:03d}.wav')
-                
-                sf.write(original_path, wav, sr)
-                
-                if stretch_audio_ffmpeg(original_path, stretched_path, target_duration_ms, actual_duration_ms, sr):
-                    stretched_wav, _ = sf.read(stretched_path)
-                    if stretched_wav.dtype != np.float32:
-                        stretched_wav = stretched_wav.astype(np.float32)
-                    wav = stretched_wav
-                    
-                    if sr != SAMPLE_RATE:
-                        import librosa
-                        wav = librosa.resample(wav, orig_sr=sr, target_sr=SAMPLE_RATE)
-                    
-                    logger.info(f"  生成音频: {actual_duration_ms:.0f}ms -> 加速{tempo:.2f}x -> {len(wav)/SAMPLE_RATE*1000:.0f}ms (目标 {target_duration_ms}ms)")
-                else:
-                    if sr != SAMPLE_RATE:
-                        import librosa
-                        wav = librosa.resample(wav, orig_sr=sr, target_sr=SAMPLE_RATE)
-                    logger.warning(f"  变速失败，使用原始音频: {actual_duration_ms:.0f}ms")
-            elif actual_duration_ms < target_duration_ms:
-                if sr != SAMPLE_RATE:
-                    import librosa
-                    wav = librosa.resample(wav, orig_sr=sr, target_sr=SAMPLE_RATE)
-                gap_ms = target_duration_ms - actual_duration_ms
-                half_gap_samples = int(gap_ms / 2 / 1000 * SAMPLE_RATE)
-                silence_start = np.zeros(half_gap_samples, dtype=np.float32)
-                silence_end = np.zeros(half_gap_samples, dtype=np.float32)
-                wav = np.concatenate([silence_start, wav, silence_end])
-                logger.info(f"  生成音频: {actual_duration_ms:.0f}ms -> 填充静音{gap_ms:.0f}ms -> {len(wav)/SAMPLE_RATE*1000:.0f}ms (目标 {target_duration_ms}ms)")
+            if batch_sr != SAMPLE_RATE:
+                import librosa
+                wav = librosa.resample(wav, orig_sr=batch_sr, target_sr=SAMPLE_RATE)
+            wavs[idx] = wav
+            logger.info(f"[{idx+1}/{len(subtitles)}] 处理字幕: {subtitles[idx]['text'][:30]}...")
+    
+    # ===== 阶段二：自然语速优先的时间对齐（局部借时间 + 语速平滑）=====
+    # 旧实现：逐句平移 + 末尾「整段统一倍速」(tempo = 总TTS/总视频)。
+    # 新实现见 tts_alignment.py：
+    #   - 超时的片段向窗口内邻居借用空闲时间（优先利用原始静音），
+    #     速度回落到舒适区，避免整段被统一加速；
+    #   - 仅在真正全局溢出时才做有上限(HARD_MAX)的平滑压缩；
+    #   - 相邻语速做平滑，避免忽快忽慢；
+    #   - 逐段 time-stretch 拼接，并输出对齐报告与质量检查。
+    import sys as _sys
+    _repo_root = os.path.dirname(script_dir)
+    if _repo_root not in _sys.path:
+        _sys.path.insert(0, _repo_root)
+    from tts_alignment import AlignmentConfig, Segment, compute_alignment, apply_audio_stretch
+
+    video_duration_s = args.video_duration_ms / 1000.0 if args.video_duration_ms else None
+
+    segments = []
+    for i, sub in enumerate(subtitles):
+        wav = wavs[i]
+        if wav is None:
+            dur = sub['duration'] / 1000.0
+            wav = generate_silence(dur * 1000) if dur > 0 else np.zeros(0, dtype=np.float32)
+        else:
+            if isinstance(wav, torch.Tensor):
+                wav = wav.detach().cpu().numpy()
+            if isinstance(wav, np.ndarray):
+                wav = wav.astype(np.float32)
             else:
-                if sr != SAMPLE_RATE:
-                    import librosa
-                    wav = librosa.resample(wav, orig_sr=sr, target_sr=SAMPLE_RATE)
-                logger.info(f"  生成音频: {actual_duration_ms:.0f}ms (目标 {target_duration_ms}ms, 无需变速)")
-            
-            audio_segments.append(wav)
-            current_position_ms = sub['end_time']
-            
-        except Exception as e:
-            logger.error(f"  生成失败: {e}")
-            import traceback
-            traceback.print_exc()
-            silence = generate_silence(sub['duration'])
-            audio_segments.append(silence)
-            current_position_ms = sub['end_time']
-    
-    logger.info("合成最终音频...")
-    
-    final_audio = np.concatenate(audio_segments)
+                wav = np.array(wav, dtype=np.float32)
+            # 挤压静音：先裁剪配音首尾静音，得到真实 TTS 时长
+            wav = trim_silence(wav, SAMPLE_RATE)
+        dur = len(wav) / SAMPLE_RATE
+        segments.append(Segment(
+            id=i,
+            text=sub['text'],
+            original_start=sub['start_time'] / 1000.0,
+            original_end=sub['end_time'] / 1000.0,
+            tts_duration=dur,
+            tts_audio=wav,
+        ))
+
+    cfg = AlignmentConfig()
+    segments, report, ok, issues = compute_alignment(segments, video_duration_s, cfg)
+    if not ok:
+        logger.warning("对齐校验未完全通过:\n" + "\n".join(issues))
+    logger.info("对齐报告:\n" + report)
+
+    final_audio = apply_audio_stretch(segments, SAMPLE_RATE, cfg)
     
     output_file = os.path.join(args.output_dir, 'subtitle_dubbed.wav')
     sf.write(output_file, final_audio, SAMPLE_RATE)

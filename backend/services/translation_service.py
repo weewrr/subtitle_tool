@@ -5,6 +5,8 @@ import threading
 import requests
 import json
 
+from backend.config.settings import Config
+
 
 class TranslationService:
     def __init__(self):
@@ -16,34 +18,85 @@ class TranslationService:
             'result': None
         }
     
-    def translate(self, text, from_lang, to_lang, engine='ollama', model='gemma3:1b', 
-              prompt_template=None, temperature=0.0, max_tokens=2048, keep_formatting=True, task='translate'):
+    def translate(self, text, from_lang, to_lang, engine='ollama', model='gemma3:1b',
+                  prompt_template=None, temperature=0.0, max_tokens=2048, keep_formatting=True, task='translate',
+                  duration=None, api_key=None):
         if engine == 'ollama':
             return self._translate_with_ollama(text, from_lang, to_lang, model, 
-                                               prompt_template, temperature, max_tokens, task)
+                                               prompt_template, temperature, max_tokens, task,
+                                               duration=duration)
+        elif engine == 'deepseek':
+            ds_model = model if model and model != 'gemma3:1b' else 'deepseek-chat'
+            return self._translate_with_deepseek(text, from_lang, to_lang, ds_model, api_key,
+                                                 prompt_template, temperature, max_tokens, task,
+                                                 duration=duration)
+        elif engine == 'bailian':
+            bl_model = model if model and model != 'gemma3:1b' else 'qwen-plus'
+            return self._translate_with_bailian(text, from_lang, to_lang, bl_model, api_key,
+                                                prompt_template, temperature, max_tokens, task,
+                                                duration=duration)
         elif engine == 'deepL':
             return self._translate_with_deepl(text, from_lang, to_lang)
         elif engine == 'google':
             return self._translate_with_google(text, from_lang, to_lang)
         elif engine == 'chatgpt':
             return self._translate_with_chatgpt(text, from_lang, to_lang, 
-                                                prompt_template, temperature, max_tokens, task)
+                                                prompt_template, temperature, max_tokens, task,
+                                                duration=duration)
         elif engine == 'anthropic':
             return self._translate_with_anthropic(text, from_lang, to_lang, 
-                                                  prompt_template, temperature, max_tokens, task)
+                                                  prompt_template, temperature, max_tokens, task,
+                                                  duration=duration)
         elif engine == 'gemini':
             return self._translate_with_gemini(text, from_lang, to_lang, 
-                                               prompt_template, temperature, max_tokens, task)
+                                               prompt_template, temperature, max_tokens, task,
+                                               duration=duration)
         elif engine == 'mistral':
             return self._translate_with_mistral(text, from_lang, to_lang, 
-                                                prompt_template, temperature, max_tokens, task)
+                                                prompt_template, temperature, max_tokens, task,
+                                                duration=duration)
         elif engine == 'libre':
             return self._translate_with_libre(text, from_lang, to_lang)
         else:
             return self._translate_with_ollama(text, from_lang, to_lang, model, 
-                                               prompt_template, temperature, max_tokens, task)
+                                               prompt_template, temperature, max_tokens, task,
+                                               duration=duration)
     
-    def _build_prompt(self, text, from_lang, to_lang, prompt_template, task='translate'):
+    # 默认「时长感知」翻译提示词。
+    # duration 为软约束：让模型在已知可用朗读时间的情况下，
+    # 主动选择更简洁、更口语化、仍准确自然的表达，而不是追求最短或硬凑字数。
+    _DURATION_AWARE_TRANSLATE_PROMPT = (
+        "Translate from {source_language} to {target_language}.\n\n"
+        "The original speech duration is approximately {duration} seconds.\n\n"
+        "Translate the text naturally and concisely, taking the available speaking time into consideration.\n\n"
+        "Preserve the original meaning and all important information.\n"
+        "Do not add information that is not present in the original text.\n"
+        "Avoid unnecessary words, redundancy, and overly literal expressions.\n"
+        "When multiple natural translations are possible, prefer the more concise expression when it better fits the available duration.\n\n"
+        "The duration is a soft constraint, not an exact character limit.\n"
+        "Do not sacrifice important meaning, accuracy, grammar, or naturalness just to make the translation shorter.\n\n"
+        "Use natural expressions appropriate for the target language and context.\n\n"
+        "Keep the original punctuation structure as much as possible, while allowing natural punctuation adjustments required by the target language.\n\n"
+        "Do not censor the translation.\n"
+        "Give only the translated text without comments, explanations, notes, or labels.\n\n"
+        "Text:\n{text}"
+    )
+
+    @staticmethod
+    def _format_duration(duration):
+        """把秒数格式化为干净字符串：3.0 -> '3'，3.6 -> '3.6'。"""
+        if duration is None:
+            return ''
+        try:
+            d = float(duration)
+        except (TypeError, ValueError):
+            return str(duration)
+        if d == int(d):
+            return str(int(d))
+        return f'{d:.1f}'
+
+    def _build_prompt(self, text, from_lang, to_lang, prompt_template, task='translate',
+                      duration=None, duration_enabled=True):
         if task == 'split':
             if prompt_template:
                 prompt = prompt_template.replace('{text}', text)
@@ -97,29 +150,50 @@ Output ONLY a valid JSON object:
 Text to check:
 ''' + text
         
+        lang_names = {
+            'en': 'English', 'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean',
+            'english': 'English', 'chinese': 'Chinese', 'japanese': 'Japanese', 'korean': 'Korean'
+        }
+        from_name = lang_names.get(str(from_lang).lower(), from_lang)
+        to_name = lang_names.get(str(to_lang).lower(), to_lang)
+
         if prompt_template:
-            prompt = prompt_template.replace('{0}', from_lang)
-            prompt = prompt.replace('{1}', to_lang)
-            prompt = prompt.replace('{text}', text)
+            # 自定义提示词：同时兼容 {0}/{1}/{2} 与命名占位符
+            dur_str = self._format_duration(duration)
+            prompt = (prompt_template
+                      .replace('{source_language}', from_name)
+                      .replace('{target_language}', to_name)
+                      .replace('{duration}', dur_str)
+                      .replace('{0}', from_name)
+                      .replace('{1}', to_name)
+                      .replace('{2}', dur_str)
+                      .replace('{text}', text))
             return prompt
-        else:
-            lang_names = {
-                'en': 'English', 'zh': 'Chinese', 'ja': 'Japanese', 'ko': 'Korean',
-                'english': 'English', 'chinese': 'Chinese', 'japanese': 'Japanese', 'korean': 'Korean'
-            }
-            from_name = lang_names.get(from_lang.lower(), from_lang)
-            to_name = lang_names.get(to_lang.lower(), to_lang)
-            return f'Translate the following {from_name} text to {to_name}. Only output the translation result, nothing else.\n\n{text}'
+
+        # 无自定义提示词：根据配置决定是否启用时长约束
+        if duration_enabled and duration is not None:
+            return self._DURATION_AWARE_TRANSLATE_PROMPT.format(
+                source_language=from_name,
+                target_language=to_name,
+                duration=self._format_duration(duration),
+                text=text
+            )
+
+        # 原始（向后兼容）默认提示词
+        return f'Translate the following {from_name} text to {to_name}. Only output the translation result, nothing else.\n\n{text}'
     
     def _translate_with_ollama(self, text, from_lang, to_lang, model, 
-                               prompt_template=None, temperature=0.0, max_tokens=2048, task='translate'):
+                               prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                               duration=None):
         try:
             import requests
         except ImportError:
             subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'requests', '-q'])
             import requests
         
-        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task)
+        duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
+        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
+                                    duration=duration, duration_enabled=duration_enabled)
         
         try:
             response = requests.post(
@@ -222,7 +296,8 @@ Text to check:
             }
     
     def _translate_with_chatgpt(self, text, from_lang, to_lang, 
-                                prompt_template=None, temperature=0.0, max_tokens=2048, task='translate'):
+                                prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                                duration=None):
         api_key = os.environ.get('OPENAI_API_KEY')
         if not api_key:
             return {
@@ -231,7 +306,9 @@ Text to check:
                 'error': 'OpenAI API key not set'
             }
         
-        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task)
+        duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
+        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
+                                    duration=duration, duration_enabled=duration_enabled)
         
         try:
             response = requests.post(
@@ -273,7 +350,8 @@ Text to check:
             }
     
     def _translate_with_anthropic(self, text, from_lang, to_lang, 
-                                  prompt_template=None, temperature=0.0, max_tokens=2048, task='translate'):
+                                  prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                                  duration=None):
         api_key = os.environ.get('ANTHROPIC_API_KEY')
         if not api_key:
             return {
@@ -282,7 +360,9 @@ Text to check:
                 'error': 'Anthropic API key not set'
             }
         
-        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task)
+        duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
+        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
+                                    duration=duration, duration_enabled=duration_enabled)
         
         try:
             response = requests.post(
@@ -324,7 +404,8 @@ Text to check:
             }
     
     def _translate_with_gemini(self, text, from_lang, to_lang, 
-                               prompt_template=None, temperature=0.0, max_tokens=2048, task='translate'):
+                               prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                               duration=None):
         api_key = os.environ.get('GOOGLE_API_KEY')
         if not api_key:
             return {
@@ -333,7 +414,9 @@ Text to check:
                 'error': 'Google API key not set'
             }
         
-        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task)
+        duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
+        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
+                                    duration=duration, duration_enabled=duration_enabled)
         
         try:
             response = requests.post(
@@ -376,7 +459,8 @@ Text to check:
             }
     
     def _translate_with_mistral(self, text, from_lang, to_lang, 
-                                prompt_template=None, temperature=0.0, max_tokens=2048, task='translate'):
+                                prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                                duration=None):
         api_key = os.environ.get('MISTRAL_API_KEY')
         if not api_key:
             return {
@@ -385,7 +469,9 @@ Text to check:
                 'error': 'Mistral API key not set'
             }
         
-        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task)
+        duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
+        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
+                                    duration=duration, duration_enabled=duration_enabled)
         
         try:
             response = requests.post(
@@ -425,6 +511,83 @@ Text to check:
                 'engine': 'mistral',
                 'error': str(e)
             }
+    
+    def _translate_openai_compatible(self, text, from_lang, to_lang, engine_name, base_url, model,
+                                     api_key, prompt_template, temperature, max_tokens, task, duration=None):
+        """OpenAI 兼容 chat/completions 通用实现（DeepSeek / 阿里百炼等）"""
+        if not api_key:
+            return {
+                'translated': text,
+                'engine': engine_name,
+                'error': f'{engine_name} API Key 未设置，请在翻译窗口中填写'
+            }
+        
+        duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
+        prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
+                                    duration=duration, duration_enabled=duration_enabled)
+        
+        try:
+            response = requests.post(
+                f'{base_url}/chat/completions',
+                headers={
+                    'Authorization': f'Bearer {api_key}',
+                    'Content-Type': 'application/json'
+                },
+                json={
+                    'model': model,
+                    'messages': [
+                        {
+                            'role': 'user',
+                            'content': prompt
+                        }
+                    ],
+                    'temperature': temperature,
+                    'max_tokens': max_tokens
+                },
+                timeout=60
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return {
+                    'translated': result.get('choices', [{}])[0].get('message', {}).get('content', text),
+                    'engine': engine_name,
+                    'model': model
+                }
+            else:
+                return {
+                    'translated': text,
+                    'engine': engine_name,
+                    'model': model,
+                    'error': f'HTTP {response.status_code}: {response.text}'
+                }
+        except Exception as e:
+            return {
+                'translated': text,
+                'engine': engine_name,
+                'error': str(e)
+            }
+    
+    def _translate_with_deepseek(self, text, from_lang, to_lang, model, api_key,
+                                 prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                                 duration=None):
+        api_key = api_key or os.environ.get('DEEPSEEK_API_KEY')
+        return self._translate_openai_compatible(
+            text, from_lang, to_lang, 'deepseek',
+            'https://api.deepseek.com/v1', model, api_key,
+            prompt_template, temperature, max_tokens, task, duration=duration
+        )
+    
+    def _translate_with_bailian(self, text, from_lang, to_lang, model, api_key,
+                                prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
+                                duration=None):
+        # 阿里百炼（DashScope）OpenAI 兼容模式
+        api_key = api_key or os.environ.get('DASHSCOPE_API_KEY') or os.environ.get('BAILIAN_API_KEY')
+        return self._translate_openai_compatible(
+            text, from_lang, to_lang, 'bailian',
+            'https://dashscope.aliyuncs.com/compatible-mode/v1', model, api_key,
+            prompt_template, temperature, max_tokens, task, duration=duration
+        )
     
     def _translate_with_libre(self, text, from_lang, to_lang):
         try:

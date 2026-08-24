@@ -3,10 +3,25 @@ const fs = require('fs')
 const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron')
 const { spawn } = require('child_process')
 const http = require('http')
+const { pathToFileURL } = require('url')
 
 const isDev = process.argv.includes('--dev')
 const backendUrl = process.env.SUBTITLE_TOOL_BACKEND_URL || 'http://127.0.0.1:5000'
 const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:3000'
+
+// 注册 app 为标准协议（必须在 app ready 之前调用），
+// 否则 app://./index.html 会被错误规范化为 app:////./index.html，导致加载失败
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true
+    }
+  }
+])
 
 
 let mainWindow = null
@@ -134,8 +149,14 @@ function createMainWindow() {
     loadDevUrlWithRetry()
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    mainWindow.loadURL('app://./index.html')
+    mainWindow.loadURL('app://./index.html').catch((err) => {
+      console.error('[electron] failed to load app://./index.html:', err.message)
+    })
   }
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log(`[electron] page loaded: ${mainWindow.webContents.getURL()}`)
+  })
 
   mainWindow.webContents.on('did-fail-load', (_event, code, description) => {
     if (isDev && code !== -3) {
@@ -274,9 +295,13 @@ app.whenReady().then(async () => {
 
   // 注册自定义 app:// 协议，确保 Electron 有稳定的 localStorage 源
   protocol.handle('app', (request) => {
-    const url = request.url.replace('app://./', '')
-    const filePath = path.join(__dirname, '..', 'dist', url)
-    return net.fetch('file://' + filePath)
+    // 标准协议下 URL 形如 app://./index.html 或 app://./assets/xx.js，
+    // 用 URL 解析取 pathname，避免字符串 replace 对形态误判
+    const pathname = decodeURIComponent(new URL(request.url).pathname)
+    const relative = pathname.replace(/^\/+/, '') || 'index.html'
+    const filePath = path.join(__dirname, '..', 'dist', relative)
+    // Windows 路径必须用 pathToFileURL 转成合法 file:/// URL，不能直接拼接
+    return net.fetch(pathToFileURL(filePath).toString())
   })
 
   if (!await isBackendHealthy()) {

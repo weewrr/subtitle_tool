@@ -98,6 +98,7 @@ class TranscriptionService:
 
     def _transcribe_thread(self, task_id):
         temp_audio_path = None
+        file_path = None
         try:
             with self._lock:
                 job = self._jobs[task_id]
@@ -126,11 +127,25 @@ class TranscriptionService:
             self._update_job(task_id, transcribing=False, phase='cancelled' if cancelled else 'error',
                              status='cancelled' if cancelled else 'error', error=None if cancelled else str(exc), progress=0 if cancelled else self.get_status(task_id)['progress'])
         finally:
-            # 只清理临时音频文件，不删除原始文件
-            for path in (temp_audio_path,):
-                if path and os.path.exists(path):
-                    try: os.unlink(path)
-                    except OSError: pass
+            # 清理临时音频文件与上传的视频副本。
+            # 仅删除位于 Temp/transcription 目录内的文件（即上传时复制的副本），
+            # 用户通过 file_path 直传的本地文件不受影响。
+            trans_dir = os.path.normcase(os.path.abspath(get_transcription_temp_dir()))
+            for path in (temp_audio_path, file_path):
+                if not path:
+                    continue
+                try:
+                    norm = os.path.normcase(os.path.abspath(path))
+                    if norm.startswith(trans_dir + os.sep) and os.path.exists(norm):
+                        os.unlink(norm)
+                except OSError:
+                    pass
+            # 目录已空则移除，避免残留空的 transcription 文件夹
+            try:
+                if not os.listdir(trans_dir):
+                    os.rmdir(trans_dir)
+            except OSError:
+                pass
 
     def _language_code(self, language):
         if not language or language.lower() == 'auto-detect': return None
@@ -176,8 +191,17 @@ class TranscriptionService:
     def _transcribe_with_openai(self, task_id, audio_path, model_name, language, use_gpu, duration):
         import torch
         import whisper
-        device = 'cuda' if (use_gpu and torch.cuda.is_available() and torch.backends.cudnn.is_available()) else 'cpu'
-        model = whisper.load_model(model_name, device=device, download_root=Config.WHISPER_CACHE_DIR)
+        # cuDNN 在部分 GPU 环境下符号解析失败会触发后端原生崩溃
+        # (Could not load symbol cudnnGetLibConfig)，禁用 cuDNN 改用原生 CUDA 内核。
+        torch.backends.cudnn.enabled = False
+        device = 'cuda' if (use_gpu and torch.cuda.is_available()) else 'cpu'
+        try:
+            model = whisper.load_model(model_name, device=device, download_root=Config.WHISPER_CACHE_DIR)
+        except Exception:
+            if device != 'cuda':
+                raise
+            device = 'cpu'
+            model = whisper.load_model(model_name, device=device, download_root=Config.WHISPER_CACHE_DIR)
         self._update_job(task_id, phase='transcribing', status='transcribing', progress=15)
         audio = self._load_normalized_wav(audio_path)
         # The upstream implementation uses tqdm with real mel-frame counts.

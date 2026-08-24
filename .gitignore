@@ -1,6 +1,11 @@
 Temp/
+.codebuddy/
+Spark-TTS/tts_test.srt
 models/
 model/
+export/
+logs/
+frontend-v2/
 Dictionaries/
 Spark-TTS/example/
 Spark-TTS/pretrained_models/

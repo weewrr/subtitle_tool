@@ -22,6 +22,20 @@ def create_app():
     
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+    # 启动时清理 Temp 目录中的过期文件（>24h），并每 6 小时定期清理
+    from backend.utils.temp_dir import cleanup_temp_dir
+    cleanup_temp_dir()
+
+    import threading
+
+    def _periodic_cleanup():
+        import time
+        while True:
+            time.sleep(6 * 3600)
+            cleanup_temp_dir()
+
+    threading.Thread(target=_periodic_cleanup, daemon=True).start()
+
     app.register_blueprint(whisper_bp)
     app.register_blueprint(vosk_bp)
     app.register_blueprint(transcription_bp)
