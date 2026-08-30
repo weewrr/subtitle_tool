@@ -8,6 +8,8 @@
     "electron:dev": "cd frontend && npm run electron:dev",
     "electron:build": "cd frontend && npm run electron:build",
     "install:all": "npm --prefix frontend install && pip install -r requirements.txt",
-    "install:frontend": "npm --prefix frontend install"
+    "install:frontend": "npm --prefix frontend install",
+    "test": "cd frontend && npm test",
+    "lint": "cd frontend && npm run lint"
   }
 }

@@ -2,8 +2,9 @@
   <div class="edit-panel">
     <div class="edit-row">
       <div class="edit-field text-input">
-        <label>原文</label>
+        <label for="edit-original-text">原文</label>
         <el-input
+          id="edit-original-text"
           v-model="originalText"
           type="textarea"
           :rows="2"
@@ -14,8 +15,9 @@
     </div>
     <div class="edit-row">
       <div class="edit-field text-input">
-        <label>翻译</label>
+        <label for="edit-translated-text">翻译</label>
         <el-input
+          id="edit-translated-text"
           v-model="translatedText"
           type="textarea"
           :rows="2"
@@ -46,12 +48,10 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSubtitleStore } from '@/stores/subtitleStore'
-import { useUIStore } from '@/stores/uiStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { apiService } from '@/services/ApiService'
 
 const subtitleStore = useSubtitleStore()
-const uiStore = useUIStore()
 const settingsStore = useSettingsStore()
 
 const originalText = ref('')
@@ -154,19 +154,19 @@ function showConfig() {
 
 <style lang="scss" scoped>
 .edit-panel {
-  background: $glass-bg;
-  backdrop-filter: $glass-blur;
-  -webkit-backdrop-filter: $glass-blur;
-  border: 1px solid $glass-border;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: $border-radius;
-  box-shadow: $glass-shadow;
-  padding: 8px;
+  box-shadow: var(--app-shadow-sm);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 
   .edit-row {
     display: flex;
     align-items: flex-end;
     gap: 8px;
-    margin-bottom: 8px;
   }
 
   .edit-field {
@@ -175,21 +175,23 @@ function showConfig() {
     flex: 1;
 
     label {
-      font-size: $font-size-base;
+      font-size: $font-size-sm;
+      font-weight: 600;
       margin-bottom: 4px;
-      color: $text-secondary;
+      color: var(--app-text-secondary);
     }
   }
 
   .nav-buttons {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     align-items: center;
+    flex-wrap: wrap;
 
     .separator {
       width: 1px;
-      height: 20px;
-      background: $glass-border;
+      height: 18px;
+      background: var(--app-border);
       margin: 0 4px;
     }
   }

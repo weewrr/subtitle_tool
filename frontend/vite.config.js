@@ -48,9 +48,13 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        manualChunks: {
-          'element-plus': ['element-plus'],
-          'vue-vendor': ['vue', 'vue-router', 'pinia']
+        // 函数形式:按需引入后 element-plus 为深路径导入(如 element-plus/es/components/...),
+        // 需按模块 ID 归组,避免分散或重复打包
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('@element-plus/icons-vue')) return 'el-icons'
+          if (id.includes('element-plus')) return 'element-plus'
+          if (/node_modules[\\/](vue|@vue|vue-router|pinia)[\\/]/.test(id)) return 'vue-vendor'
         }
       }
     }

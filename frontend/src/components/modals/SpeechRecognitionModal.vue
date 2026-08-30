@@ -18,12 +18,14 @@ import { ElMessage } from 'element-plus'
 import { useUIStore } from '@/stores/uiStore'
 import { useSubtitleStore } from '@/stores/subtitleStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { apiService } from '@/services/ApiService'
 import { getBackendBaseUrl } from '@/utils/runtime'
 
 const uiStore = useUIStore()
 const subtitleStore = useSubtitleStore()
 const settingsStore = useSettingsStore()
+const taskStore = useTaskStore()
 const visible = computed({ get: () => uiStore.speechRecognitionModalVisible, set: value => value ? uiStore.showSpeechRecognitionModal() : uiStore.hideSpeechRecognitionModal() })
 const engine = ref('whisper-ctranslate2'), language = ref('Auto-detect'), selectedModel = ref('base'), models = ref([]), useGpu = ref(true)
 const isTranscribing = ref(false), progress = ref(0), progressStatus = ref(''), progressText = ref('准备中...')
@@ -67,12 +69,25 @@ async function startTranscribe() {
     taskId = task.task_id
     progressText.value = '任务已启动...'
     openEventStream()
+
+    // 非阻塞运行:任务转入底部任务坞,关闭对话框,期间可继续编辑字幕
+    const videoName = typeof subtitleStore.videoFile === 'string'
+      ? subtitleStore.videoFile.split(/[/\\]/).pop()
+      : subtitleStore.videoFile.name
+    dockTaskId = taskStore.startTask({
+      title: '语音识别',
+      detail: `${videoName} · ${selectedModel.value}`,
+      cancel: cancelTask
+    })
+    taskStore.updateTask(dockTaskId, { progress: 0 })
+    uiStore.hideSpeechRecognitionModal()
   } catch (error) {
     isTranscribing.value = false
     const msg = error.response?.data?.error || error.message || '未知错误'
     ElMessage.error(`识别失败: ${msg}`)
   }
 }
+let dockTaskId = null
 function openEventStream() {
   closeEventStream()
   eventSource = new EventSource(`${getBackendBaseUrl()}/api/transcribe/${taskId}/events`)
@@ -112,16 +127,24 @@ async function handleStatus(status) {
   else if (status.status === 'loading_model') progressText.value = '正在加载模型...'
   else if (status.status === 'transcribing') progressText.value = `正在识别中... ${detail}`
   else if (status.status === 'generating_subtitles') progressText.value = '正在生成字幕文件...'
-  else if (status.status === 'completed') {
+  // 同步任务坞进度
+  if (dockTaskId !== null) {
+    taskStore.updateTask(dockTaskId, { progress: progress.value, detail: progressText.value })
+  }
+  if (status.status === 'completed') {
     stopTracking(); progress.value = 100; progressStatus.value = 'success'; progressText.value = '正在获取结果...'
     try {
       const result = await apiService.getTranscribeResult(taskId)
       if (!result?.segments?.length) throw new Error('未识别到语音内容')
-      subtitleStore.loadFromTranscription(result.segments, subtitleStore.videoFile.name.replace(/\.[^/.]+$/, '') + '.srt')
+      const baseName = (typeof subtitleStore.videoFile === 'string'
+        ? subtitleStore.videoFile.split(/[/\\]/).pop()
+        : subtitleStore.videoFile.name) || '识别结果'
+      subtitleStore.loadFromTranscription(result.segments, baseName.replace(/\.[^/.]+$/, '') + '.srt')
+      if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'success', `完成 · 共 ${result.segments.length} 条字幕`)
       ElMessage.success(`识别完成，共 ${result.segments.length} 条字幕`); close()
-    } catch (error) { isTranscribing.value = false; ElMessage.error(`获取结果失败: ${error.message}`) }
-  } else if (status.status === 'error') { stopTracking(); progressStatus.value = 'exception'; isTranscribing.value = false; ElMessage.error(`识别失败: ${status.error || '未知错误'}`) }
-  else if (status.status === 'cancelled') { stopTracking(); isTranscribing.value = false; ElMessage.info('识别任务已取消') }
+    } catch (error) { isTranscribing.value = false; if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'error', error.message); ElMessage.error(`获取结果失败: ${error.message}`) }
+  } else if (status.status === 'error') { stopTracking(); progressStatus.value = 'exception'; isTranscribing.value = false; if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'error', status.error || '未知错误'); ElMessage.error(`识别失败: ${status.error || '未知错误'}`) }
+  else if (status.status === 'cancelled') { stopTracking(); isTranscribing.value = false; if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'cancelled', '已取消'); ElMessage.info('识别任务已取消') }
 }
 function progressDetail(status) {
   const percent = `${Math.round(status.progress || 0)}%`
@@ -133,7 +156,7 @@ async function cancelTask() { if (taskId) { await apiService.cancelTranscribe(ta
 function closeEventStream() { if (eventSource) { eventSource.close(); eventSource = null } }
 function stopTracking() { closeEventStream(); if (pollTimer) { clearInterval(pollTimer); pollTimer = null } }
 function handleBeforeClose(done) { if (isTranscribing.value) return ElMessage.warning('请先取消或等待任务完成'); done() }
-function close() { isTranscribing.value = false; stopTracking(); taskId = null; uiStore.hideSpeechRecognitionModal() }
+function close() { isTranscribing.value = false; stopTracking(); taskId = null; dockTaskId = null; uiStore.hideSpeechRecognitionModal() }
 </script>
 
 <style lang="scss" scoped>

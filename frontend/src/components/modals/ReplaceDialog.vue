@@ -53,7 +53,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useUIStore } from '@/stores/uiStore'
 import { useSubtitleStore } from '@/stores/subtitleStore'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 
 const uiStore = useUIStore()
 const subtitleStore = useSubtitleStore()
@@ -128,7 +128,7 @@ function findNext() {
   }
   
   let found = false
-  let startIndex = lastIndex.value < 0 ? 0 : lastIndex.value + 1
+  const startIndex = lastIndex.value < 0 ? 0 : lastIndex.value + 1
   
   for (let i = 0; i < paragraphs.length; i++) {
     const idx = (startIndex + i) % paragraphs.length
@@ -174,7 +174,7 @@ function replaceNext() {
     return
   }
   
-  const { index, field, match } = lastMatch.value
+  const { index, field } = lastMatch.value
   const p = subtitleStore.currentSubtitle.paragraphs[index]
   
   let newText
@@ -216,8 +216,7 @@ async function replaceAll() {
   
   for (let i = 0; i < paragraphs.length; i++) {
     const p = paragraphs[i]
-    let modified = false
-    
+
     if (searchOriginal.value) {
       regex.lastIndex = 0
       if (regex.test(p.text)) {
@@ -231,10 +230,9 @@ async function replaceAll() {
         }
         subtitleStore.updateParagraphText(i, newText)
         count++
-        modified = true
       }
     }
-    
+
     if (searchTranslation.value && p.translation) {
       regex.lastIndex = 0
       if (regex.test(p.translation)) {
@@ -248,7 +246,6 @@ async function replaceAll() {
         }
         subtitleStore.updateParagraphTranslation(i, newText)
         count++
-        modified = true
       }
     }
   }

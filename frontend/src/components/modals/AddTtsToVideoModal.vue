@@ -51,13 +51,17 @@
           v-if="isProcessing"
           type="danger"
           @click="abortGeneration"
-        >停止</el-button>
+        >
+停止
+</el-button>
         <el-button
           v-else
           type="primary"
           :disabled="!canGenerate"
           @click="handleGenerate"
-        >开始生成</el-button>
+        >
+开始生成
+</el-button>
       </div>
     </template>
   </el-dialog>
@@ -69,7 +73,7 @@ import { ElMessage } from 'element-plus'
 import { VideoPlay, Headset } from '@element-plus/icons-vue'
 import { useSubtitleStore } from '@/stores/subtitleStore'
 import { useUIStore } from '@/stores/uiStore'
-import { getBackendBaseUrl } from '@/utils/runtime'
+import { unwrapApiResponse } from '@/utils/api'
 import axios from 'axios'
 
 const subtitleStore = useSubtitleStore()
@@ -81,6 +85,7 @@ const progress = ref(0)
 const progressStatus = ref('')
 const progressText = ref('准备中...')
 let pollingInterval = null
+let backendTaskId = null
 
 const videoFile = computed(() => subtitleStore.videoFile)
 const audioFile = computed(() => subtitleStore.dubbingAudioFile)
@@ -123,6 +128,7 @@ function resetState() {
   progress.value = 0
   progressStatus.value = ''
   progressText.value = '准备中...'
+  backendTaskId = null
 }
 
 function handleClose() {
@@ -160,9 +166,12 @@ async function handleGenerate() {
       formData.append('audio', audioFile.value)
     }
 
-    await axios.post('/api/tts-video/generate', formData, {
+    const response = await axios.post('/api/tts-video/generate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
+    // 记录后端任务 ID,状态/取消/下载均定向到该任务,避免并发任务互相覆盖
+    const payload = unwrapApiResponse(response.data)
+    backendTaskId = payload?.task_id || null
 
     progressText.value = '正在处理视频...'
     startStatusPolling()
@@ -180,8 +189,10 @@ function startStatusPolling() {
       return
     }
     try {
-      const response = await axios.get('/api/tts-video/status')
-      const status = response.data
+      const response = await axios.get('/api/tts-video/status', {
+        params: backendTaskId ? { task_id: backendTaskId } : {}
+      })
+      const status = unwrapApiResponse(response.data)
       progress.value = Math.round(status.progress || 0)
 
       if (status.status === 'completed') {
@@ -228,7 +239,8 @@ function stopPolling() {
 
 async function abortGeneration() {
   try {
-    await axios.post('/api/tts-video/abort')
+    await axios.post('/api/tts-video/abort',
+      backendTaskId ? { task_id: backendTaskId } : {})
     progressText.value = '正在停止...'
   } catch (error) {
     console.error('停止失败:', error)
@@ -238,7 +250,8 @@ async function abortGeneration() {
 async function downloadAndUpdateVideo() {
   try {
     const response = await axios.get('/api/tts-video/download', {
-      responseType: 'blob'
+      responseType: 'blob',
+      params: backendTaskId ? { task_id: backendTaskId } : {}
     })
     const blob = new Blob([response.data], { type: 'video/mp4' })
     const baseName = getFileName(videoFile.value).replace(/\.[^/.]+$/, '') || 'video'

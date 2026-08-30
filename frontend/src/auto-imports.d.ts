@@ -11,6 +11,7 @@ declare global {
   const ElCollapseTransition: typeof import('element-plus/es')['ElCollapseTransition']
   const ElFocusGroupCollection: typeof import('element-plus/es')['ElFocusGroupCollection']
   const ElIcon: typeof import('element-plus/es')['ElIcon']
+  const ElMessageBox: typeof import('element-plus/es')['ElMessageBox']
   const ElRovingFocusCollectionItem: typeof import('element-plus/es')['ElRovingFocusCollectionItem']
   const ElRovingFocusItem: typeof import('element-plus/es')['ElRovingFocusItem']
   const ElSelectMenu: typeof import('element-plus/es')['ElSelectMenu']

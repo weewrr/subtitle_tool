@@ -58,8 +58,7 @@
                   </el-form-item>
                 </el-col>
               </el-row>
-
-            </el-form>
+</el-form>
           </div>
         </el-col>
         <el-col :span="12">
@@ -179,18 +178,24 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { VideoPlay, VideoPause, RefreshLeft, FullScreen } from '@element-plus/icons-vue'
 import { useSubtitleStore } from '@/stores/subtitleStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { getBackendBaseUrl } from '@/utils/runtime'
+import { unwrapApiResponse } from '@/utils/api'
 import axios from 'axios'
 
 const emit = defineEmits(['close'])
 
 const subtitleStore = useSubtitleStore()
 const uiStore = useUIStore()
+const taskStore = useTaskStore()
+
+let dockTaskId = null
+let backendTaskId = null
 
 const dialogVisible = ref(false)
 const isProcessing = ref(false)
@@ -211,7 +216,7 @@ const subtitlePosition = ref({ y: 10 })
 const isDraggingSubtitle = ref(false)
 const isDraggingProgress = ref(false)
 const generatedVideoUrl = ref('')
-let subtitleWatchers = []
+const subtitleWatchers = []
 
 const videoFile = computed(() => subtitleStore.videoFile)
 const videoUrl = computed(() => {
@@ -543,11 +548,26 @@ async function handleGenerate() {
       })
     }
 
-    if (response.data.status === 'started') {
+    const payload = unwrapApiResponse(response.data)
+
+    if (payload.status === 'started') {
+      // 记录后端任务 ID,状态/取消/下载均定向到该任务,避免并发任务互相覆盖
+      backendTaskId = payload.task_id || null
+      // 任务坞镜像:全局可见进度 + 可随时取消
+      const videoName = typeof videoFile.value === 'string'
+        ? videoFile.value.split(/[/\\]/).pop()
+        : videoFile.value?.name || '视频'
+      dockTaskId = taskStore.startTask({
+        title: '生成硬字幕视频',
+        detail: videoName,
+        cancel: abortGeneration
+      })
       startStatusPolling()
     }
   } catch (error) {
     ElMessage.error('生成失败: ' + (error.response?.data?.error || error.message))
+    if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'error', error.response?.data?.error || error.message)
+    dockTaskId = null
     isProcessing.value = false
     canStop.value = false
   }
@@ -569,15 +589,20 @@ function startStatusPolling() {
     }
     
     try {
-      const response = await axios.get('/api/hard-subtitle/status')
-      const status = response.data
+      const response = await axios.get('/api/hard-subtitle/status', {
+        params: backendTaskId ? { task_id: backendTaskId } : {}
+      })
+      const status = unwrapApiResponse(response.data)
 
       if (status.status === 'completed') {
         isProcessing.value = false
         canStop.value = false
+        if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'success', '生成完成')
+        dockTaskId = null
         ElMessage.success('生成成功!')
         
         generatedVideoUrl.value = '/api/hard-subtitle/download?t=' + Date.now()
+          + (backendTaskId ? '&task_id=' + encodeURIComponent(backendTaskId) : '')
         if (videoPreview.value) {
           videoPreview.value.load()
           videoPreview.value.currentTime = 0
@@ -602,6 +627,8 @@ function startStatusPolling() {
       } else if (status.status === 'error') {
         isProcessing.value = false
         canStop.value = false
+        if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'error', status.error || '未知错误')
+        dockTaskId = null
         ElMessage.error('生成失败: ' + (status.error || '未知错误'))
         
         // 清除 polling 间隔
@@ -612,6 +639,8 @@ function startStatusPolling() {
       } else if (status.status === 'aborted') {
         isProcessing.value = false
         canStop.value = false
+        if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'cancelled', '已停止')
+        dockTaskId = null
         ElMessage.info('已停止生成')
         
         // 清除 polling 间隔
@@ -634,7 +663,8 @@ function startStatusPolling() {
 
 async function abortGeneration() {
   try {
-    await axios.post('/api/hard-subtitle/abort')
+    await axios.post('/api/hard-subtitle/abort',
+      backendTaskId ? { task_id: backendTaskId } : {})
     canStop.value = false
   } catch (error) {
     console.error('停止失败:', error)
@@ -645,7 +675,8 @@ async function downloadAndUpdateVideo() {
   try {
     // 下载生成的视频
     const response = await axios.get('/api/hard-subtitle/download', {
-      responseType: 'blob'
+      responseType: 'blob',
+      params: backendTaskId ? { task_id: backendTaskId } : {}
     })
     
     // 创建 Blob 对象

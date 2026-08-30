@@ -59,7 +59,6 @@ const searchOriginal = ref(true)
 const searchTranslation = ref(true)
 const resultInfo = ref('')
 const lastIndex = ref(-1)
-const lastPosition = ref(-1)
 
 const visible = computed({
   get: () => uiStore.findDialogVisible,

@@ -68,7 +68,16 @@ export const useUIStore = defineStore('ui', () => {
   const hardSubtitleModalVisible = ref(false)
   const addTtsToVideoModalVisible = ref(false)
   const settingsDialogVisible = ref(false)
+  const exportDialogVisible = ref(false)
   const initialSettingsTab = ref('workspace')
+
+  function showExportDialog() {
+    exportDialogVisible.value = true
+  }
+
+  function hideExportDialog() {
+    exportDialogVisible.value = false
+  }
 
   function showSettingsDialog(tab = 'workspace') {
     initialSettingsTab.value = tab
@@ -304,7 +313,10 @@ export const useUIStore = defineStore('ui', () => {
     hardSubtitleModalVisible,
     addTtsToVideoModalVisible,
     settingsDialogVisible,
+    exportDialogVisible,
     initialSettingsTab,
+    showExportDialog,
+    hideExportDialog,
     showSpeechRecognitionModal,
     hideSpeechRecognitionModal,
     showBatchProcessingModal,

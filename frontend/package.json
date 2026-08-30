@@ -10,26 +10,33 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1 --port 3000\" \"wait-on http-get://127.0.0.1:3000 && electron ./electron/main.cjs --dev\"",
     "electron:build": "vite build && electron-builder",
-    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix --ignore-path .gitignore",
-    "typecheck": "vue-tsc --noEmit"
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
-    "vue": "^3.4.21",
-    "vue-router": "^4.3.0",
-    "pinia": "^2.1.7",
-    "element-plus": "^2.6.1",
     "@element-plus/icons-vue": "^2.3.1",
-    "axios": "^1.6.7"
+    "axios": "^1.6.7",
+    "element-plus": "^2.6.1",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.4",
+    "@vue/test-utils": "^2.4.5",
     "concurrently": "^9.2.1",
     "electron": "^31.7.7",
     "electron-builder": "^24.13.3",
-    "vite": "^5.1.6",
+    "eslint": "^8.57.0",
+    "eslint-plugin-vue": "^9.23.0",
+    "jsdom": "^24.0.0",
     "sass": "^1.71.1",
-    "unplugin-vue-components": "^0.26.0",
     "unplugin-auto-import": "^0.17.5",
+    "unplugin-vue-components": "^0.26.0",
+    "vite": "^5.1.6",
+    "vitest": "^1.6.0",
+    "vue-eslint-parser": "^9.4.2",
     "vue-tsc": "^2.0.6",
     "wait-on": "^8.0.3"
   },
@@ -44,8 +51,31 @@
     "directories": {
       "buildResources": "build"
     },
+    "fileAssociations": [
+      {
+        "ext": "stproj",
+        "name": "Subtitle Tool Project",
+        "description": "字幕工作台项目文件",
+        "role": "Editor",
+        "mimeType": "application/vnd.subtitle-tool.project+json"
+      }
+    ],
     "win": {
       "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "associateStp": true
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "AudioVideo"
     }
   }
 }

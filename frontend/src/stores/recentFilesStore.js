@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 
 const MAX_RECENT_FILES = 10
 const STORAGE_KEY = 'subtitle-tool-recent-files'
@@ -37,11 +38,22 @@ export const useRecentFilesStore = defineStore('recentFiles', () => {
     }
   }
 
+  const lastSaveError = ref(null)
+  let lastErrorNotifyAt = 0
+
   function saveToStorage() {
+    lastSaveError.value = null
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(recentFiles.value))
     } catch (err) {
+      lastSaveError.value = err
       console.error('Failed to save recent files to storage:', err)
+      // 节流:同类型错误 10s 内只弹一次,避免重复刷屏
+      const now = Date.now()
+      if (now - lastErrorNotifyAt > 10_000) {
+        lastErrorNotifyAt = now
+        ElMessage.warning('最近文件列表保存失败:' + (err?.message || '存储异常'))
+      }
     }
   }
 
@@ -90,6 +102,7 @@ export const useRecentFilesStore = defineStore('recentFiles', () => {
     subtitleFiles,
     videoFiles,
     audioFiles,
+    lastSaveError,
     addRecentFile,
     removeRecentFile,
     clearRecentFiles,

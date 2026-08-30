@@ -4,7 +4,9 @@
       v-if="videoUrl"
       ref="videoRef"
       :src="videoUrl"
+      crossorigin="anonymous"
       @timeupdate="handleTimeUpdate"
+      @seeked="handleTimeUpdate"
       @loadedmetadata="handleLoadedMetadata"
       @ended="handleEnded"
     ></video>
@@ -12,6 +14,23 @@
       <el-icon :size="48"><VideoCamera /></el-icon>
       <span>视频预览区域</span>
     </div>
+
+    <!-- 字幕实时叠加预览:所见即所得 -->
+    <div v-if="videoUrl" class="subtitle-overlay" :class="{ visible: overlayVisible }" aria-hidden="true">
+      <div v-if="overlayText" class="overlay-line">{{ overlayText }}</div>
+      <div v-if="overlayTranslation" class="overlay-line translation">{{ overlayTranslation }}</div>
+    </div>
+    <button
+      v-if="videoUrl"
+      type="button"
+      class="overlay-toggle"
+      :class="{ active: overlayVisible }"
+      :title="overlayVisible ? '隐藏字幕预览' : '显示字幕预览'"
+      :aria-label="overlayVisible ? '隐藏字幕预览' : '显示字幕预览'"
+      @click.stop="overlayVisible = !overlayVisible"
+    >
+      <el-icon :size="14"><View /></el-icon>
+    </button>
     <div v-if="videoUrl && isFullscreen" class="fullscreen-controls" @click.stop>
       <el-slider
         v-model="progressValue"
@@ -21,19 +40,23 @@
         class="progress-slider"
       />
       <div class="controls-bar">
-        <el-button :icon="isPlaying ? 'VideoPause' : 'VideoPlay'" @click="togglePlay" />
-        <el-button icon="RefreshLeft" @click="reset" />
+        <el-button
+          :icon="isPlaying ? 'VideoPause' : 'VideoPlay'"
+          :aria-label="isPlaying ? '暂停' : '播放'"
+          @click="togglePlay"
+        />
+        <el-button icon="RefreshLeft" aria-label="回到开头" @click="reset" />
         <span class="time">{{ currentTimeDisplay }} / {{ durationDisplay }}</span>
-        <el-button icon="FullScreen" @click="toggleFullscreen" />
+        <el-button icon="FullScreen" aria-label="退出全屏" @click="toggleFullscreen" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useSubtitleStore } from '@/stores/subtitleStore'
-import { getBackendBaseUrl } from '@/utils/runtime'
+import { resolveMediaUrl } from '@/utils/runtime'
 
 const subtitleStore = useSubtitleStore()
 
@@ -48,6 +71,33 @@ const duration = ref(0)
 
 const videoFile = computed(() => subtitleStore.videoFile)
 
+// ============================================================
+// 字幕实时叠加预览:按播放时间查找当前字幕
+// ============================================================
+const overlayVisible = ref(true)
+const overlayText = ref('')
+const overlayTranslation = ref('')
+
+function updateOverlay(currentTimeMs) {
+  const ps = subtitleStore.currentSubtitle.paragraphs
+  for (const p of ps) {
+    if (currentTimeMs >= p.startTime.totalMilliseconds && currentTimeMs <= p.endTime.totalMilliseconds) {
+      overlayText.value = p.text || ''
+      overlayTranslation.value = (subtitleStore.showTranslation && p.translation) ? p.translation : ''
+      return
+    }
+  }
+  overlayText.value = ''
+  overlayTranslation.value = ''
+}
+
+// 字幕内容变化(加载/编辑/翻译切换)后立即刷新叠加预览
+watch(() => [subtitleStore.currentSubtitle, subtitleStore.showTranslation], () => {
+  if (videoRef.value) {
+    updateOverlay(videoRef.value.currentTime * 1000)
+  }
+})
+
 const currentTimeDisplay = computed(() => formatTime(currentTime.value))
 const durationDisplay = computed(() => formatTime(duration.value))
 
@@ -59,11 +109,15 @@ function formatTime(seconds) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
 }
 
-watch(videoFile, (newFile) => {
+watch(videoFile, async (newFile) => {
   if (newFile) {
     if (typeof newFile === 'string') {
-      const encodedPath = encodeURIComponent(newFile)
-      videoUrl.value = `${getBackendBaseUrl()}/api/video/serve?path=${encodedPath}`
+      // Electron 走 media:// 自定义协议直读本地磁盘,根除 CORS 导致的 Web Audio 静音
+      // 浏览器端回退为后端 HTTP 转发
+      videoUrl.value = await resolveMediaUrl(newFile)
+      // URL 切换后下一帧 video 元素已重建,把 store 的引用也刷新,避免 VideoControls 拿旧元素
+      await nextTick()
+      if (videoRef.value) subtitleStore.setVideoElement(videoRef.value)
     } else {
       videoUrl.value = URL.createObjectURL(newFile)
     }
@@ -72,6 +126,8 @@ watch(videoFile, (newFile) => {
       URL.revokeObjectURL(videoUrl.value)
     }
     videoUrl.value = ''
+    // v-if 即将销毁 video 元素,同步清空 store,避免其他组件拿到已销毁的元素
+    subtitleStore.setVideoElement(null)
   }
 })
 
@@ -81,7 +137,14 @@ function handleFullscreenChange() {
 
 function handleKeyDown(event) {
   if (!videoRef.value) return
-  
+
+  // 焦点在输入类控件时不劫持方向键,避免编辑字幕文本时触发视频跳转
+  const target = event.target
+  if (target instanceof HTMLElement &&
+      (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) {
+    return
+  }
+
   if (event.key === 'ArrowLeft') {
     videoRef.value.currentTime = Math.max(0, videoRef.value.currentTime - 5)
   } else if (event.key === 'ArrowRight') {
@@ -118,6 +181,7 @@ function handleContainerClick(event) {
 function handleTimeUpdate() {
   if (videoRef.value) {
     const currentTimeMs = videoRef.value.currentTime * 1000
+    updateOverlay(currentTimeMs)
     syncSubtitle(currentTimeMs)
     currentTime.value = videoRef.value.currentTime
     if (duration.value > 0) {
@@ -235,12 +299,10 @@ defineExpose({
 
 <style lang="scss" scoped>
 .video-player {
-  background: $glass-bg;
-  backdrop-filter: $glass-blur;
-  -webkit-backdrop-filter: $glass-blur;
-  border: 1px solid $glass-border;
+  background: var(--app-media-bg);
+  border: 1px solid var(--app-border);
   border-radius: $border-radius;
-  box-shadow: $glass-shadow;
+  box-shadow: var(--app-shadow-sm);
   flex: 1;
   display: flex;
   align-items: center;
@@ -256,12 +318,79 @@ defineExpose({
     display: block;
     object-fit: contain;
   }
-  
+
+  // 字幕实时叠加预览
+  .subtitle-overlay {
+    position: absolute;
+    left: 50%;
+    bottom: 6%;
+    transform: translateX(-50%);
+    max-width: 86%;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 2;
+
+    &.visible {
+      opacity: 1;
+    }
+
+    .overlay-line {
+      display: block;
+      padding: 2px 10px;
+      font-size: 20px;
+      line-height: 1.4;
+      color: #fff;
+      text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 1px 3px rgba(0, 0, 0, 0.9), 0 -1px 3px rgba(0, 0, 0, 0.9);
+      white-space: pre-wrap;
+      word-break: break-word;
+
+      &.translation {
+        font-size: 16px;
+        color: #ffe9a8;
+        margin-top: 2px;
+      }
+    }
+  }
+
+  .overlay-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: $border-radius-sm;
+    background: rgba(8, 13, 20, 0.55);
+    color: rgba(255, 255, 255, 0.75);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+    z-index: 3;
+
+    &.active {
+      color: #fff;
+    }
+
+    &:hover {
+      background: rgba(8, 13, 20, 0.8);
+      color: #fff;
+    }
+  }
+
+  &:hover .overlay-toggle {
+    opacity: 1;
+  }
+
   &:fullscreen {
     width: 100vw;
     height: 100vh;
     border-radius: 0;
-    
+
     video {
       height: 100%;
     }
@@ -272,7 +401,12 @@ defineExpose({
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    color: $text-secondary;
+    color: var(--app-media-text);
+    transition: color $transition-base;
+
+    &:hover {
+      color: var(--app-primary);
+    }
   }
 
   .fullscreen-controls {
@@ -280,12 +414,9 @@ defineExpose({
     bottom: 0;
     left: 0;
     right: 0;
-    background: rgba(255, 255, 255, 0.15);
-    backdrop-filter: $glass-blur;
-    -webkit-backdrop-filter: $glass-blur;
-    border: 1px solid $glass-border;
-    border-radius: $border-radius;
-    padding: 20px 20px 10px;
+    background: rgba(8, 13, 20, 0.82);
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 16px 20px 10px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -305,9 +436,11 @@ defineExpose({
 
       .time {
         margin-left: auto;
-        color: $text-color;
+        color: #e6edec;
+        font-family: $font-family-mono;
         font-size: 14px;
         white-space: nowrap;
+        font-variant-numeric: tabular-nums;
       }
     }
   }

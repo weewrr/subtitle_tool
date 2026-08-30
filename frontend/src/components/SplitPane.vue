@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 
 const props = defineProps({
   vertical: {
@@ -146,11 +146,11 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  
+
   &.vertical {
     flex-direction: row;
   }
-  
+
   &.horizontal {
     flex-direction: column;
   }
@@ -172,53 +172,54 @@ onUnmounted(() => {
   min-height: 0;
 }
 
+// 分隔条:与工作台沟槽融为一体,悬停/拖拽时主色提示
 .splitter {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: $glass-blur;
-  -webkit-backdrop-filter: $glass-blur;
+  background: transparent;
   z-index: 10;
-  transition: all 0.3s ease;
-  
+  transition: background-color $transition-base;
+
   &.vertical {
-    width: 6px;
+    width: 8px;
     cursor: col-resize;
-    margin: 0 -3px;
-    
+    margin: 0 -4px;
+
     .splitter-line {
       width: 1px;
       height: 100%;
-      background: $glass-border;
+      background: var(--app-border);
+      transition: background-color $transition-base, width $transition-base;
     }
-    
-    &:hover .splitter-line {
+
+    &:hover .splitter-line,
+    &:active .splitter-line {
       width: 3px;
-      background: rgba(64, 158, 255, 0.5);
+      border-radius: 2px;
+      background: var(--app-primary);
     }
   }
-  
+
   &.horizontal {
-    height: 6px;
+    height: 8px;
     cursor: row-resize;
-    margin: -3px 0;
-    
+    margin: -4px 0;
+
     .splitter-line {
       height: 1px;
       width: 100%;
-      background: $glass-border;
+      background: var(--app-border);
+      transition: background-color $transition-base, height $transition-base;
     }
-    
-    &:hover .splitter-line {
+
+    &:hover .splitter-line,
+    &:active .splitter-line {
       height: 3px;
-      background: rgba(64, 158, 255, 0.5);
+      border-radius: 2px;
+      background: var(--app-primary);
     }
-  }
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
   }
 }
 </style>

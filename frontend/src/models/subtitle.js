@@ -132,11 +132,16 @@ export class Subtitle {
     this.fileName = 'Untitled'
     this.originalFormat = null
     this.historyItems = []
+    this.redoItems = []
     this.maxHistoryItems = 100
   }
 
   get canUndo() {
     return this.historyItems.length > 0
+  }
+
+  get canRedo() {
+    return this.redoItems.length > 0
   }
 
   addParagraph(paragraph) {
@@ -187,12 +192,34 @@ export class Subtitle {
     if (this.historyItems.length > this.maxHistoryItems) {
       this.historyItems.shift()
     }
+    // 新编辑使重做栈失效
+    this.redoItems = []
   }
 
   undo() {
     if (this.historyItems.length > 0) {
       const historyItem = this.historyItems.pop()
+      // 当前状态进入重做栈
+      this.redoItems.push({
+        description: historyItem.description,
+        paragraphs: this.paragraphs.map(p => p.clone())
+      })
       this.paragraphs = historyItem.paragraphs
+      return true
+    }
+    return false
+  }
+
+  redo() {
+    if (this.redoItems.length > 0) {
+      const item = this.redoItems.pop()
+      // 回退前的状态回到历史栈,保证再撤销能回到该状态
+      this.historyItems.push({
+        description: item.description,
+        timestamp: new Date(),
+        paragraphs: this.paragraphs.map(p => p.clone())
+      })
+      this.paragraphs = item.paragraphs
       return true
     }
     return false
@@ -203,6 +230,75 @@ export class Subtitle {
     this.header = ''
     this.footer = ''
     this.historyItems = []
+    this.redoItems = []
+  }
+
+  // ============================================================
+  // 历史栈序列化(限条数,避免 .stproj 过大)
+  // ============================================================
+  static paragraphToPlain(p) {
+    return {
+      start: p.startTime.totalMilliseconds,
+      end: p.endTime.totalMilliseconds,
+      text: p.text,
+      translation: p.translation || '',
+      style: p.style || '',
+      actor: p.actor || '',
+      marginL: p.marginL || '0000',
+      marginR: p.marginR || '0000',
+      marginV: p.marginV || '0000',
+      effect: p.effect || '',
+      isComment: !!p.isComment,
+      forced: !!p.forced,
+      id: p.id,
+      number: p.number || 0
+    }
+  }
+
+  static paragraphFromPlain(obj) {
+    const p = new Paragraph(
+      new TimeCode(obj.start || 0),
+      new TimeCode(obj.end || 0),
+      obj.text || '',
+      obj.number || 0
+    )
+    if (obj.id) p.id = obj.id
+    p.translation = obj.translation || ''
+    p.style = obj.style || ''
+    p.actor = obj.actor || ''
+    p.marginL = obj.marginL || '0000'
+    p.marginR = obj.marginR || '0000'
+    p.marginV = obj.marginV || '0000'
+    p.effect = obj.effect || ''
+    p.isComment = !!obj.isComment
+    p.forced = !!obj.forced
+    return p
+  }
+
+  serializeHistory(maxItems = 30) {
+    const slice = (arr) => arr.slice(Math.max(0, arr.length - maxItems)).map(item => ({
+      description: item.description,
+      timestamp: item.timestamp instanceof Date ? item.timestamp.toISOString() : (item.timestamp || null),
+      paragraphs: (item.paragraphs || []).map(Subtitle.paragraphToPlain)
+    }))
+    return {
+      undo: slice(this.historyItems),
+      redo: slice(this.redoItems)
+    }
+  }
+
+  restoreHistory(history) {
+    if (!history) return
+    const parseStack = (arr) => Array.isArray(arr) ? arr.map(item => ({
+      description: item.description,
+      timestamp: item.timestamp ? new Date(item.timestamp) : new Date(),
+      paragraphs: (item.paragraphs || []).map(Subtitle.paragraphFromPlain)
+    })) : []
+    this.historyItems = parseStack(history.undo)
+    this.redoItems = parseStack(history.redo)
+    if (this.historyItems.length > this.maxHistoryItems) {
+      this.historyItems = this.historyItems.slice(-this.maxHistoryItems)
+    }
   }
 }
 
@@ -235,7 +331,7 @@ export class SubtitleFormats {
           expecting = 'timecode'
         }
       } else if (expecting === 'timecode') {
-        const match = line.match(/(\d{1,2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,\.]\d{3})/)
+        const match = line.match(/(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})/)
         if (match) {
           currentParagraph.startTime = TimeCode.parse(match[1].replace(',', '.'))
           currentParagraph.endTime = TimeCode.parse(match[2].replace(',', '.'))
@@ -420,7 +516,7 @@ export class SubtitleFormats {
         continue
       }
 
-      const timeMatch = line.match(/(\d{1,2}:\d{2}:\d{2}[,\.]\d{3})\s*-+\s*(\d{1,2}:\d{2}:\d{2}[,\.]\d{3})/)
+      const timeMatch = line.match(/(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-+\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})/)
       if (timeMatch) {
         if (currentParagraph && textLines.length > 0) {
           currentParagraph.text = textLines.join(' ')
@@ -455,13 +551,13 @@ export class SubtitleFormats {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
 
-      if (line.match(/<SYNC Start=\"(\d+)\"/)) {
+      if (line.match(/<SYNC Start="(\d+)"/)) {
         if (currentParagraph && textLines.length > 0) {
           currentParagraph.text = textLines.join('').replace(/<[^>]+>/g, '').trim()
           subtitle.addParagraph(currentParagraph)
           textLines = []
         }
-        const start = parseInt(line.match(/<SYNC Start=\"(\d+)\"/)[1])
+        const start = parseInt(line.match(/<SYNC Start="(\d+)"/)[1])
         currentParagraph = new Paragraph(
           new TimeCode(start),
           new TimeCode(start + 3000),
@@ -524,16 +620,16 @@ export class SubtitleFormats {
     if (content.startsWith('WEBVTT')) {
       return 'vtt'
     }
-    if (content.match(/^\d+\s*\n\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{3}/m)) {
+    if (content.match(/^\d+\s*\n\s*\d{1,2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,.]\d{3}/m)) {
       return 'srt'
     }
     if (content.match(/\[Script Info\]/i)) {
       return 'ass'
     }
-    if (content.match(/<SYNC Start=\"\d+\"/)) {
+    if (content.match(/<SYNC Start="\d+"/)) {
       return 'smi'
     }
-    if (content.match(/\d{1,2}:\d{2}:\d{2}[,\.]\d{3}\s*-+\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{3}/)) {
+    if (content.match(/\d{1,2}:\d{2}:\d{2}[,.]\d{3}\s*-+\s*\d{1,2}:\d{2}:\d{2}[,.]\d{3}/)) {
       return 'txt'
     }
     return null

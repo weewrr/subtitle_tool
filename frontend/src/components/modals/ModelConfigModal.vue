@@ -130,8 +130,8 @@ function onSave() {
   border-color: var(--app-glass-border, rgba(255,255,255,0.25));
 }
 .config-item.selected {
-  border-color: #409eff;
-  background: rgba(64, 158, 255, 0.1);
+  border-color: var(--app-primary);
+  background: var(--app-primary-subtle);
 }
 .config-info {
   display: flex;

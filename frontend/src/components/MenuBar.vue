@@ -1,5 +1,16 @@
 <template>
-  <div class="menu-bar">
+  <header class="menu-bar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="16" height="16">
+          <rect x="1" y="11" width="14" height="3" rx="1" fill="currentColor" opacity="0.9" />
+          <rect x="3" y="6.5" width="10" height="3" rx="1" fill="currentColor" opacity="0.65" />
+          <rect x="5" y="2" width="6" height="3" rx="1" fill="currentColor" opacity="0.4" />
+        </svg>
+      </div>
+      <span class="brand-name">字幕工作台</span>
+    </div>
+
     <el-menu mode="horizontal" :ellipsis="false">
       <el-sub-menu index="file" class="hide-arrow">
         <template #title>文件</template>
@@ -31,6 +42,12 @@
         </el-menu-item>
         <el-menu-item index="saveOriginal" @click="saveOriginalSubtitle">
           <el-icon><Document /></el-icon>保存原始字幕
+        </el-menu-item>
+        <el-menu-item index="saveProject" @click="saveProject" :disabled="!hasSubtitle" title="Ctrl+Shift+S">
+          <el-icon><FolderChecked /></el-icon>保存项目
+        </el-menu-item>
+        <el-menu-item index="openProject" @click="openProjectFile">
+          <el-icon><Folder /></el-icon>打开项目
         </el-menu-item>
         <el-menu-item index="closeSubtitle" @click="closeSubtitle" :disabled="!hasSubtitle">
           <el-icon><DocumentRemove /></el-icon>关闭字幕
@@ -108,383 +125,153 @@
       </el-sub-menu>
     </el-menu>
 
-    <div class="export-btn" :class="{ 'is-disabled': !hasSubtitle }" @click="showExportDialog">
-      <el-icon><Upload /></el-icon>导出
+    <div class="header-actions">
+      <button
+        class="palette-btn"
+        type="button"
+        aria-label="打开命令面板"
+        title="命令面板 (Ctrl+K)"
+        @click="commandStore.togglePalette(true)"
+      >
+        <el-icon :size="13"><Search /></el-icon>
+        <span class="palette-key">Ctrl K</span>
+      </button>
+      <button
+        class="icon-btn"
+        type="button"
+        :aria-label="isDark ? '切换到浅色主题' : '切换到深色主题'"
+        :title="isDark ? '切换到浅色主题' : '切换到深色主题'"
+        @click="toggleTheme"
+      >
+        <el-icon :size="15"><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+      </button>
+      <button
+        class="export-btn"
+        type="button"
+        :class="{ 'is-disabled': !hasSubtitle }"
+        :disabled="!hasSubtitle"
+        @click="showExportDialog"
+      >
+        <el-icon :size="14"><Upload /></el-icon>导出
+      </button>
     </div>
-
-    <input
-      type="file"
-      ref="subtitleFileInput"
-      accept=".srt,.vtt,.sub,.ass,.ssa"
-      style="display: none"
-      @change="handleSubtitleFile"
-    />
-    <input
-      type="file"
-      ref="videoFileInput"
-      accept="video/*"
-      style="display: none"
-      @change="handleVideoFile"
-    />
-  </div>
+  </header>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useAppActions } from '@/composables/useAppActions'
+import { useCommandStore } from '@/stores/commandStore'
 import { useSubtitleStore } from '@/stores/subtitleStore'
-import { useUIStore } from '@/stores/uiStore'
-import { useRecentFilesStore, FILE_TYPES } from '@/stores/recentFilesStore'
-import { SubtitleFormats } from '@/models/subtitle'
+import { useRecentFilesStore } from '@/stores/recentFilesStore'
 
+const commandStore = useCommandStore()
 const subtitleStore = useSubtitleStore()
-const uiStore = useUIStore()
 const recentFilesStore = useRecentFilesStore()
 
-const subtitleFileInput = ref(null)
-const videoFileInput = ref(null)
-
-const hasSubtitle = computed(() => subtitleStore.paragraphCount > 0)
-const hasTranslation = computed(() => subtitleStore.hasTranslation)
-
-function openSubtitleFile() {
-  if (window.electronAPI) {
-    openSubtitleFileElectron()
-  } else {
-    subtitleFileInput.value?.click()
-  }
-}
-
-async function openSubtitleFileElectron() {
-  const result = await window.electronAPI.selectSubtitleFile()
-  if (result.success) {
-    const success = subtitleStore.loadSubtitle(result.content, result.fileName)
-    if (success) {
-      document.title = `${result.fileName} - 字幕编辑工具`
-      ElMessage.success(`已加载字幕文件: ${result.fileName}`)
-      recentFilesStore.addRecentFile(result.filePath, result.fileName, FILE_TYPES.SUBTITLE)
-    } else {
-      ElMessage.error('无法识别的字幕文件格式')
-    }
-  }
-}
-
-function openVideoFile() {
-  if (window.electronAPI) {
-    openVideoFileElectron()
-  } else {
-    videoFileInput.value?.click()
-  }
-}
-
-async function openVideoFileElectron() {
-  const result = await window.electronAPI.selectVideoFile()
-  if (result.success) {
-    subtitleStore.setVideoFile(result.filePath)
-    ElMessage.success(`已加载视频文件: ${result.fileName}`)
-    recentFilesStore.addRecentFile(result.filePath, result.fileName, FILE_TYPES.VIDEO)
-  }
-}
-
-function handleSubtitleFile(e) {
-  const file = e.target.files[0]
-  if (!file) return
-
-  const reader = new FileReader()
-  reader.onload = (event) => {
-    const content = event.target.result
-    const success = subtitleStore.loadSubtitle(content, file.name)
-    if (success) {
-      document.title = `${file.name} - 字幕编辑工具`
-      ElMessage.success(`已加载字幕文件: ${file.name}`)
-      if (file.path) {
-        recentFilesStore.addRecentFile(file.path, file.name, FILE_TYPES.SUBTITLE)
-      }
-    } else {
-      ElMessage.error('无法识别的字幕文件格式')
-    }
-  }
-  reader.readAsText(file)
-  e.target.value = ''
-}
-
-async function openRecentFile(file) {
-  if (!window.electronAPI) {
-    ElMessage.warning('此功能仅在Electron环境下可用')
-    return
-  }
-
-  if (file.type === FILE_TYPES.SUBTITLE) {
-    const result = await window.electronAPI.readFile(file.path)
-    if (result.success) {
-      const success = subtitleStore.loadSubtitle(result.content, result.fileName)
-      if (success) {
-        document.title = `${result.fileName} - 字幕编辑工具`
-        ElMessage.success(`已加载字幕文件: ${result.fileName}`)
-        recentFilesStore.addRecentFile(result.filePath, result.fileName, FILE_TYPES.SUBTITLE)
-      } else {
-        ElMessage.error('无法识别的字幕文件格式')
-      }
-    } else {
-      ElMessage.error(`打开文件失败: ${result.error}`)
-      recentFilesStore.removeRecentFile(file.path)
-    }
-  } else if (file.type === FILE_TYPES.VIDEO) {
-    subtitleStore.setVideoFile(file.path)
-    ElMessage.success(`已加载视频文件: ${file.name}`)
-    recentFilesStore.addRecentFile(file.path, file.name, FILE_TYPES.VIDEO)
-  } else if (file.type === FILE_TYPES.AUDIO) {
-    subtitleStore.setDubbingAudioFile(file.path)
-    ElMessage.success(`已加载音频文件: ${file.name}`)
-    recentFilesStore.addRecentFile(file.path, file.name, FILE_TYPES.AUDIO)
-  }
-}
-
-function clearRecentFiles() {
-  recentFilesStore.clearRecentFiles()
-  ElMessage.success('已清除历史记录')
-}
-
-function handleVideoFile(e) {
-  const file = e.target.files[0]
-  if (!file) return
-
-  subtitleStore.setVideoFile(file)
-  ElMessage.success(`已加载视频文件: ${file.name}`)
-  if (file.path) {
-    recentFilesStore.addRecentFile(file.path, file.name, FILE_TYPES.VIDEO)
-  }
-  e.target.value = ''
-}
-
-async function saveTranslatedSubtitle() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('没有可保存的字幕')
-    return
-  }
-  const content = subtitleStore.exportToSRTTranslation()
-  const defaultName = `${subtitleStore.currentSubtitle.fileName.replace(/\.[^/.]+$/, '')}_translated.srt`
-  await saveFileWithPicker(content, defaultName)
-}
-
-async function saveOriginalSubtitle() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('没有可保存的字幕')
-    return
-  }
-  const content = subtitleStore.exportToSRT()
-  await saveFileWithPicker(content, subtitleStore.currentSubtitle.fileName)
-}
-
-async function saveFileWithPicker(content, defaultName) {
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: defaultName,
-        types: [{
-          description: '字幕文件',
-          accept: { 'text/plain': ['.srt', '.vtt', '.ass', '.sub'] }
-        }]
-      })
-      const writable = await handle.createWritable()
-      await writable.write(content)
-      await writable.close()
-      ElMessage.success('保存成功')
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        ElMessage.error(`保存失败: ${err.message}`)
-      }
-    }
-  } else {
-    downloadFile(content, defaultName)
-    ElMessage.success('保存成功')
-  }
-}
-
-function downloadFile(content, filename) {
-  const blob = new Blob([content], { type: 'text/plain' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-function closeSubtitle() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.info('当前没有打开的字幕文件')
-    return
-  }
-  subtitleStore.clearSubtitle()
-  document.title = '字幕编辑工具'
-  ElMessage.success('已关闭字幕文件')
-}
-
-function showExportDialog() {
-  ElMessage.info('导出功能尚未实现')
-}
-
-function exitApp() {
-  if (confirm('确定要退出吗？')) {
-    window.close()
-  }
-}
-
-function showFindDialog() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showFindDialog()
-}
-
-function findNext() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showFindDialog()
-}
-
-function showReplaceDialog() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showReplaceDialog()
-}
-
-function showMultiReplaceDialog() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showMultiReplaceDialog()
-}
-
-function showGoToDialog() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showGoToLineDialog({ maxLine: subtitleStore.paragraphCount })
-}
-
-function checkSpelling() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showSpellCheckDialog()
-}
-
-function findDuplicateWords() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showFindDuplicateWordsDialog()
-}
-
-function findDuplicateLines() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showFindDuplicateLinesDialog()
-}
-
-function closeVideo() {
-  subtitleStore.setVideoFile(null)
-  subtitleStore.setVideoElement(null)
-  ElMessage.info('已关闭视频')
-}
-
-function embedHardSubtitles() {
-  uiStore.showHardSubtitleModal()
-}
-
-function showSpeechRecognition() {
-  uiStore.showSpeechRecognitionModal()
-}
-
-function addTtsToVideo() {
-  if (!subtitleStore.videoFile) {
-    ElMessage.warning('请先在视频区域打开视频文件')
-    return
-  }
-  if (!subtitleStore.dubbingAudioFile) {
-    ElMessage.warning('请先在文本转语音区域加载配音音频')
-    return
-  }
-  uiStore.showAddTtsToVideoModal()
-}
-
-function showTranslate() {
-  uiStore.showTranslateModal()
-}
-
-function mergeSentences() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showMergeSentencesModal()
-}
-
-function splitLongLines() {
-  if (subtitleStore.paragraphCount === 0) {
-    ElMessage.warning('请先打开字幕文件')
-    return
-  }
-  uiStore.showSplitLongLinesModal()
-}
-
-function showSettings() {
-  uiStore.showSettingsDialog()
-}
+const {
+  isDark,
+  toggleTheme,
+  hasSubtitle,
+  hasTranslation,
+  openSubtitleFile,
+  openVideoFile,
+  openProjectFile,
+  saveProject,
+  openRecentFile,
+  clearRecentFiles,
+  saveOriginalSubtitle,
+  saveTranslatedSubtitle,
+  closeSubtitle,
+  showExportDialog,
+  exitApp,
+  showFindDialog,
+  findNext,
+  showReplaceDialog,
+  showMultiReplaceDialog,
+  showGoToDialog,
+  checkSpelling,
+  findDuplicateWords,
+  findDuplicateLines,
+  closeVideo,
+  embedHardSubtitles,
+  showSpeechRecognition,
+  addTtsToVideo,
+  showTranslate,
+  mergeSentences,
+  splitLongLines,
+  showSettings
+} = useAppActions()
 </script>
 
 <style lang="scss" scoped>
 .menu-bar {
-  background: $glass-bg;
-  backdrop-filter: $glass-blur;
-  -webkit-backdrop-filter: $glass-blur;
-  padding: 2px 4px;
-  border: 1px solid $glass-border;
-  border-radius: $border-radius;
-  box-shadow: $glass-shadow;
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
   display: flex;
   align-items: center;
+  gap: 8px;
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-right: 8px;
+    margin-right: 4px;
+    border-right: 1px solid var(--app-border);
+    user-select: none;
+
+    .brand-mark {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      background: var(--app-primary);
+      color: #fff;
+      box-shadow: var(--app-shadow-sm);
+    }
+
+    .brand-name {
+      font-size: $font-size-lg;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: var(--app-text-primary);
+    }
+  }
 
   :deep(.el-menu) {
     background: transparent;
     border-bottom: none;
-    height: 24px;
+    height: 32px;
+    flex: 1;
+    min-width: 0;
   }
 
   :deep(.el-menu-item),
   :deep(.el-sub-menu__title) {
-    height: 24px;
-    line-height: 24px;
+    height: 32px;
+    line-height: 32px;
     font-size: $font-size-base;
+    font-weight: 500;
     padding: 0 10px;
-    color: $text-color;
-    transition: all 0.3s ease;
+    border-radius: $border-radius-sm;
+    color: var(--app-text-secondary);
+    transition: $transition-colors;
   }
 
   :deep(.el-menu-item:hover),
   :deep(.el-sub-menu__title:hover) {
-    background: $menu-hover;
-    color: $text-color;
+    background: var(--app-hover-bg);
+    color: var(--app-text-primary);
   }
 
   :deep(.el-sub-menu .el-menu-item) {
-    height: 28px;
-    line-height: 28px;
+    height: 30px;
+    line-height: 30px;
   }
 
   :deep(.hide-arrow) {
@@ -493,30 +280,83 @@ function showSettings() {
     }
   }
 
-  .export-btn {
-    height: 24px;
-    line-height: 24px;
-    font-size: $font-size-base;
-    padding: 0 10px;
-    cursor: pointer;
+  .header-actions {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
     margin-left: auto;
-    color: $text-color;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: $border-radius;
-    transition: all 0.3s ease;
+    flex-shrink: 0;
+  }
 
-    &:hover {
-      background: $menu-hover;
-      transform: translateY(-1px);
+  .palette-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--app-border);
+    border-radius: $border-radius-sm;
+    background: var(--app-surface-muted);
+    color: var(--app-text-muted);
+    cursor: pointer;
+    transition: $transition-colors;
+
+    .palette-key {
+      font-family: $font-family-mono;
+      font-size: 11px;
+      line-height: 1;
     }
 
-    &.is-disabled {
+    &:hover {
+      background: var(--app-hover-bg);
+      border-color: var(--app-border-strong);
+      color: var(--app-text-primary);
+    }
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--app-border);
+    border-radius: $border-radius-sm;
+    background: var(--app-surface);
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    transition: $transition-colors;
+
+    &:hover {
+      background: var(--app-hover-bg);
+      border-color: var(--app-border-strong);
+      color: var(--app-text-primary);
+    }
+  }
+
+  .export-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 14px;
+    font-size: $font-size-base;
+    font-weight: 600;
+    border: none;
+    border-radius: $border-radius-sm;
+    background: var(--app-accent);
+    color: #fff;
+    cursor: pointer;
+    transition: $transition-colors;
+
+    &:hover:not(:disabled) {
+      background: var(--app-accent-hover);
+      box-shadow: var(--app-shadow-md);
+    }
+
+    &:disabled {
+      opacity: 0.45;
       cursor: not-allowed;
-      opacity: 0.5;
-      pointer-events: none;
     }
   }
 }

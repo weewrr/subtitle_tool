@@ -125,6 +125,7 @@ import { useSubtitleStore } from '@/stores/subtitleStore'
 import { useRecentFilesStore, FILE_TYPES } from '@/stores/recentFilesStore'
 import axios from 'axios'
 import { getBackendBaseUrl } from '@/utils/runtime'
+import { unwrapApiResponse } from '@/utils/api'
 
 const subtitleStore = useSubtitleStore()
 const recentFilesStore = useRecentFilesStore()
@@ -190,8 +191,9 @@ onUnmounted(() => {
 async function fetchEngines() {
   try {
     const response = await axios.get('/api/tts/engines')
-    if (response.data.success) {
-      engines.value = response.data.engines
+    const payload = unwrapApiResponse(response.data)
+    if (payload.success) {
+      engines.value = payload.engines
       if (engines.value.length > 0 && !engines.value.find(e => e.id === ttsEngine.value)) {
         ttsEngine.value = engines.value[0].id
       }
@@ -204,8 +206,9 @@ async function fetchEngines() {
 async function fetchVoices() {
   try {
     const response = await axios.get('/api/tts/voices')
-    if (response.data.success) {
-      voices.value = response.data.voices
+    const payload = unwrapApiResponse(response.data)
+    if (payload.success) {
+      voices.value = payload.voices
     }
   } catch (error) {
     console.error('Failed to fetch voices:', error)
@@ -236,12 +239,14 @@ function beforeUpload(file) {
 }
 
 function handleUploadSuccess(response) {
-  if (response.success) {
+  // el-upload 直连后端(不走 axios 拦截器),需手动解统一响应壳
+  const payload = unwrapApiResponse(response)
+  if (payload && payload.success) {
     ElMessage.success('上传成功')
     fetchVoices()
-    ttsVoice.value = response.voice.filename
+    ttsVoice.value = payload.voice.filename
   } else {
-    ElMessage.error('上传失败: ' + response.error)
+    ElMessage.error('上传失败: ' + ((payload && payload.error) || '未知错误'))
   }
 }
 
@@ -299,12 +304,13 @@ async function generateSpeech() {
     }
     
     const response = await axios.post('/api/tts/generate-subtitles', requestBody)
-    
-    if (response.data.success && response.data.status === 'started') {
+    const payload = unwrapApiResponse(response.data)
+
+    if (payload.success && payload.status === 'started') {
       progressText.value = '正在生成语音...'
       startStatusPolling()
-    } else if (response.data.error) {
-      ElMessage.error('生成失败: ' + response.data.error)
+    } else if (payload.error) {
+      ElMessage.error('生成失败: ' + payload.error)
       isGenerating.value = false
     }
   } catch (error) {
@@ -321,7 +327,7 @@ function startStatusPolling() {
   statusPollingInterval = setInterval(async () => {
     try {
       const response = await axios.get('/api/tts/status')
-      const status = response.data.status
+      const status = unwrapApiResponse(response.data).status
       
       if (status.status === 'preparing') {
         progressText.value = '正在准备...'
@@ -337,8 +343,9 @@ function startStatusPolling() {
         
         try {
           const resultResponse = await axios.get('/api/tts/result')
-          if (resultResponse.data.success) {
-            const outputPath = resultResponse.data.output_path
+          const resultPayload = unwrapApiResponse(resultResponse.data)
+          if (resultPayload.success) {
+            const outputPath = resultPayload.output_path
             // 将生成的音频设置为当前配音文件：
             // 1) 触发 dubbingAudioFile watch 自动生成播放地址
             // 2) 使配音波形与"添加到视频"立即可用（与手动导入音频行为一致）
@@ -467,7 +474,7 @@ async function exportAudio() {
 <style lang="scss" scoped>
 .tts-panel {
   flex: 1;
-  padding: 12px;
+  padding: 12px 14px;
   overflow: auto;
 
   .tts-header {
@@ -475,12 +482,6 @@ async function exportAudio() {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: $glass-blur;
-    -webkit-backdrop-filter: $glass-blur;
-    border: 1px solid $glass-border;
-    border-radius: $border-radius;
 
     .header-left {
       display: flex;
@@ -489,8 +490,9 @@ async function exportAudio() {
 
       h4 {
         margin: 0;
-        font-size: $font-size-lg;
-        color: $text-color;
+        font-size: $font-size-base;
+        font-weight: 600;
+        color: var(--app-text-primary);
       }
     }
 
@@ -509,22 +511,22 @@ async function exportAudio() {
   .el-form-item {
     margin-bottom: 12px;
   }
-  
+
   .progress-text {
     margin-top: 8px;
     font-size: 12px;
-    color: $text-secondary;
+    color: var(--app-text-secondary);
     text-align: center;
   }
-  
+
   .engine-option, .mode-option {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    
+
     .engine-desc, .mode-desc {
       font-size: 11px;
-      color: $text-muted;
+      color: var(--app-text-muted);
     }
   }
 }

@@ -121,7 +121,6 @@ import { ElMessage } from 'element-plus'
 import { useUIStore } from '@/stores/uiStore'
 import { useSubtitleStore } from '@/stores/subtitleStore'
 import { apiService } from '@/services/ApiService'
-import { Paragraph, TimeCode } from '@/models/subtitle'
 import SpellCheckAdvancedModal from './SpellCheckAdvancedModal.vue'
 
 const uiStore = useUIStore()
@@ -317,8 +316,6 @@ function confirmChanges() {
         return
     }
 
-    const paragraphs = subtitleStore.currentSubtitle.paragraphs
-    
     checkResults.value.forEach((result, index) => {
         if (result.hasChanges && result.text !== result.originalText) {
             subtitleStore.updateParagraphText(index, result.text)
@@ -359,7 +356,7 @@ function handleCancel() {
 }
 
 .checking-status {
-    color: #409eff;
+    color: var(--app-primary);
     font-size: 14px;
 }
 

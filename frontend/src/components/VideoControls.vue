@@ -8,9 +8,19 @@
       @input="handleProgressChange"
     />
     <div class="video-buttons">
-      <el-button :icon="isPlaying ? 'VideoPause' : 'VideoPlay'" @click="togglePlay" :disabled="!hasVideo" />
-      <el-button icon="RefreshLeft" @click="reset" :disabled="!hasVideo" />
-      <el-button :icon="isMuted ? 'Mute' : 'Microphone'" @click="toggleMute" :disabled="!hasVideo" />
+      <el-button
+        :icon="isPlaying ? 'VideoPause' : 'VideoPlay'"
+        :aria-label="isPlaying ? '暂停' : '播放'"
+        @click="togglePlay"
+        :disabled="!hasVideo"
+      />
+      <el-button icon="RefreshLeft" aria-label="回到开头" @click="reset" :disabled="!hasVideo" />
+      <el-button
+        :icon="isMuted ? 'Mute' : 'Microphone'"
+        :aria-label="isMuted ? '取消静音' : '静音'"
+        @click="toggleMute"
+        :disabled="!hasVideo"
+      />
       <el-slider
         v-model="volumeDb"
         :min="-20"
@@ -18,10 +28,11 @@
         :disabled="!hasVideo || isMuted"
         :show-tooltip="false"
         class="volume-slider"
+        aria-label="音量"
         @input="handleVolumeChange"
       />
       <span class="time">{{ currentTimeDisplay }} / {{ durationDisplay }}</span>
-      <el-button icon="FullScreen" @click="toggleFullscreen" :disabled="!hasVideo" />
+      <el-button icon="FullScreen" aria-label="全屏" @click="toggleFullscreen" :disabled="!hasVideo" />
     </div>
   </div>
 </template>
@@ -43,6 +54,9 @@ let audioContext = null
 let gainNode = null
 let sourceNode = null
 let currentVideoElement = null
+let boundListenerElement = null
+// Web Audio 链路失败(如元素已被绑定过/上下文异常)时,回退到原生 video.volume
+let useWebAudio = true
 
 const hasVideo = computed(() => !!subtitleStore.videoFile)
 
@@ -62,29 +76,58 @@ function dbToGain(db) {
   return Math.pow(10, db / 20)
 }
 
+// 回退模式:把 dB 滑块压缩映射到原生 0~1 音量(原生无法放大,>0dB 按 1 处理)
+function applyNativeVolume(video) {
+  if (!video) return
+  video.muted = isMuted.value
+  video.volume = Math.min(1, Math.max(0, dbToGain(volumeDb.value)))
+}
+
+function applyGain() {
+  const target = isMuted.value ? 0 : dbToGain(volumeDb.value)
+  if (useWebAudio && gainNode) {
+    gainNode.gain.value = target
+  } else if (currentVideoElement) {
+    currentVideoElement.muted = isMuted.value
+    currentVideoElement.volume = Math.min(1, Math.max(0, target))
+  }
+}
+
 function setupAudioContext(video) {
   if (!video || video === currentVideoElement) return
-  
+
   currentVideoElement = video
-  
+  useWebAudio = true
+
   try {
-    if (!audioContext) {
+    if (!audioContext || audioContext.state === 'closed') {
       audioContext = new (window.AudioContext || window.webkitAudioContext)()
     }
-    
+
     if (sourceNode) {
-      sourceNode.disconnect()
+      try { sourceNode.disconnect() } catch (e) { /* 已断开时忽略 */ }
     }
-    
+
+    // 注意:createMediaElementSource 对同一元素只能成功一次,重复绑定会抛错
     sourceNode = audioContext.createMediaElementSource(video)
     gainNode = audioContext.createGain()
-    
+
     sourceNode.connect(gainNode)
     gainNode.connect(audioContext.destination)
-    
-    gainNode.gain.value = dbToGain(volumeDb.value)
+
+    gainNode.gain.value = isMuted.value ? 0 : dbToGain(volumeDb.value)
+
+    // 无手势环境下 AudioContext 创建即为 suspended 状态,画面正常但无声,需主动恢复
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().catch(() => {})
+    }
   } catch (e) {
-    console.error('Audio context setup failed:', e)
+    // 元素已被绑定过或其他异常:回退到原生音量控制,保证有声
+    console.warn('Web Audio 不可用,回退原生音量:', e)
+    useWebAudio = false
+    sourceNode = null
+    gainNode = null
+    applyNativeVolume(video)
   }
 }
 
@@ -112,14 +155,12 @@ function reset() {
 
 function toggleMute() {
   isMuted.value = !isMuted.value
-  if (gainNode) {
-    gainNode.gain.value = isMuted.value ? 0 : dbToGain(volumeDb.value)
-  }
+  applyGain()
 }
 
-function handleVolumeChange(db) {
-  if (gainNode && !isMuted.value) {
-    gainNode.gain.value = dbToGain(db)
+function handleVolumeChange() {
+  if (!isMuted.value) {
+    applyGain()
   }
 }
 
@@ -141,7 +182,7 @@ function toggleFullscreen() {
   }
 }
 
-watch(() => subtitleStore.videoElement, (video, oldVideo) => {
+watch(() => subtitleStore.videoElement, (video) => {
   if (video) {
     setupVideoListeners(video)
     setupAudioContext(video)
@@ -157,9 +198,15 @@ function resetControls() {
   progressValue.value = 0
   currentTime.value = 0
   duration.value = 0
+  currentVideoElement = null
+  boundListenerElement = null
 }
 
 function setupVideoListeners(video) {
+  // 同一元素只绑定一次,避免 watch 重复触发时叠加监听器
+  if (video === boundListenerElement) return
+  boundListenerElement = video
+
   video.addEventListener('timeupdate', () => {
     currentTime.value = video.currentTime
     if (duration.value > 0) {
@@ -174,8 +221,13 @@ function setupVideoListeners(video) {
   })
   video.addEventListener('play', () => {
     isPlaying.value = true
-    if (audioContext && audioContext.state === 'suspended') {
-      audioContext.resume()
+    // 播放时兜底恢复 suspended 的 AudioContext(画面动但无声的常见原因)
+    if (useWebAudio && audioContext && audioContext.state === 'suspended') {
+      audioContext.resume().catch(() => {})
+    }
+    // 播放中途若已回退原生模式,确保音量生效
+    if (!useWebAudio) {
+      applyNativeVolume(video)
     }
   })
   video.addEventListener('pause', () => {
@@ -201,16 +253,14 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .video-controls {
-  background: $glass-bg;
-  backdrop-filter: $glass-blur;
-  -webkit-backdrop-filter: $glass-blur;
-  border: 1px solid $glass-border;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: $border-radius;
-  box-shadow: $glass-shadow;
-  padding: 8px;
+  box-shadow: var(--app-shadow-sm);
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 
   .el-slider {
     width: 100%;
@@ -231,9 +281,11 @@ onUnmounted(() => {
 
     .time {
       margin-left: auto;
-      font-size: $font-size-base;
+      font-family: $font-family-mono;
+      font-size: $font-size-sm;
       white-space: nowrap;
-      color: $text-color;
+      color: var(--app-text-secondary);
+      font-variant-numeric: tabular-nums;
     }
   }
 }

@@ -77,7 +77,7 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUIStore } from '@/stores/uiStore'
 import { useSubtitleStore } from '@/stores/subtitleStore'
-import { Paragraph, TimeCode } from '@/models/subtitle'
+import { TimeCode } from '@/models/subtitle'
 
 const uiStore = useUIStore()
 const subtitleStore = useSubtitleStore()

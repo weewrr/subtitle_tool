@@ -1,33 +1,70 @@
-$bg-color: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-$bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-$glass-bg: var(--app-glass-bg, rgba(255, 255, 255, 0.15));
-$glass-border: var(--app-glass-border, rgba(255, 255, 255, 0.3));
-$glass-shadow: var(--app-glass-shadow, 0 8px 32px 0 rgba(31, 38, 135, 0.37));
-$glass-blur: blur(12px);
-$border-color: rgba(255, 255, 255, 0.3);
-$primary-color: #409eff;
-$success-color: #67c23a;
-$warning-color: #e6a23c;
-$danger-color: #f56c6c;
-$info-color: #909399;
+// ============================================================
+// 设计 Token — Swiss 极简 · 专业桌面工具(基于 ui-ux-pro-max)
+// 主色 Teal #0D9488 / 强调色 Orange #EA580C / 实色表面 / 高密度
+// 说明:变量名保留旧 API($glass-* 等)以兼容既有组件,
+//      实际值已映射为实色表面,不再使用玻璃拟态。
+// ============================================================
 
-$text-color: var(--app-text-color, rgba(255, 255, 255, 0.95));
-$text-secondary: var(--app-text-secondary, rgba(255, 255, 255, 0.8));
-$text-muted: var(--app-text-muted, rgba(255, 255, 255, 0.6));
+// ---------- 字体 ----------
+// 界面字体:优先系统中文字体,保证中文渲染质量与跨平台一致性
+$font-family: 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+  'Helvetica Neue', Arial, sans-serif;
+// 等宽字体:时间码 / 波形刻度等数值场景
+$font-family-mono: 'Cascadia Code', 'JetBrains Mono', 'SF Mono', Consolas,
+  'Courier New', monospace;
 
-$menu-bg: var(--app-menu-bg, rgba(255, 255, 255, 0.1));
-$menu-hover: var(--app-hover-bg, rgba(255, 255, 255, 0.2));
+// 字号分级:正文不低于 12px(可读性下限);高密度工具基准 13px
+$font-size-base: 13px;
+$font-size-sm: 12px;
+$font-size-lg: 15px;
+$font-size-xl: 17px;
 
-$selected-bg: var(--app-selected-bg, rgba(64, 158, 255, 0.3));
-$hover-bg: var(--app-hover-bg, rgba(255, 255, 255, 0.15));
+// ---------- 颜色(经 CSS 变量桥接双主题) ----------
+// 主色:Teal
+$primary-color: var(--app-primary);
+// 表面
+$glass-bg: var(--app-surface);            // 面板/卡片背景(实色)
+$glass-card: var(--app-surface);
+$glass-card-hover: var(--app-surface-muted);
+$glass-border: var(--app-border);         // 边框(1px 实线)
+$glass-border-light: var(--app-border-strong);
+$glass-blur: none;                        // 已弃用模糊,保留 API
+// 文字
+$text-color: var(--app-text-primary);
+$text-secondary: var(--app-text-secondary);
+$text-muted: var(--app-text-muted);
+// 交互
+$menu-bg: var(--app-surface);
+$menu-hover: var(--app-hover-bg);
+$hover-bg: var(--app-hover-bg);
+$selected-bg: var(--app-primary-subtle);
+// 语义色
+$success-color: var(--app-success);
+$warning-color: var(--app-warning);
+$danger-color: var(--app-danger);
+$info-color: var(--app-text-muted);
 
-$font-size-base: 12px;
-$font-size-sm: 11px;
-$font-size-lg: 14px;
+// ---------- 圆角(Swiss 收紧) ----------
+$border-radius: 10px;      // 面板/卡片
+$border-radius-lg: 12px;   // 大容器
+$border-radius-md: 10px;   // 对话框/弹层
+$border-radius-sm: 6px;    // 输入框/按钮/下拉项
 
-$border-radius: 16px;
-$box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+// ---------- 动效 ----------
+$transition-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
+$transition-base: 180ms cubic-bezier(0.2, 0, 0, 1);
+$transition-colors: background-color $transition-base, border-color $transition-base,
+  color $transition-base, box-shadow $transition-base, opacity $transition-base;
 
-$glass-card: var(--app-glass-bg, rgba(255, 255, 255, 0.15));
-$glass-card-hover: rgba(255, 255, 255, 0.25);
-$glass-border-light: rgba(255, 255, 255, 0.4);
+// ---------- 阴影(克制、分层) ----------
+$glass-shadow: var(--app-shadow-sm);
+$box-shadow: var(--app-shadow-md);
+$shadow-pop: var(--app-shadow-lg);
+
+// ---------- 焦点环 ----------
+$focus-ring-color: var(--app-focus-ring);
+
+// ---------- 兼容别名(历史组件引用) ----------
+$bg-color: var(--app-surface);
+$bg-gradient: var(--app-bg);
+$border-color: var(--app-border);

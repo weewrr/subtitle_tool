@@ -82,9 +82,14 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUIStore } from '@/stores/uiStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { apiService } from '@/services/ApiService'
 
 const uiStore = useUIStore()
+const taskStore = useTaskStore()
+
+let dockTaskId = null
+let cancelRequested = false
 
 const visible = computed({
   get: () => uiStore.batchProcessingModalVisible,
@@ -179,39 +184,64 @@ async function startProcessing() {
 
   isProcessing.value = true
   progress.value = 0
+  cancelRequested = false
+
+  const total = batchFiles.value.length
+  // 任务坞后台运行:弹窗关闭,进度/取消在底部任务坞
+  dockTaskId = taskStore.startTask({
+    title: '批量识别',
+    detail: `共 ${total} 个文件 · ${selectedModel.value}`,
+    cancel: () => { cancelRequested = true }
+  })
+  taskStore.updateTask(dockTaskId, { progress: 0 })
+  uiStore.hideBatchProcessingModal()
 
   try {
-    for (let i = 0; i < batchFiles.value.length; i++) {
+    for (let i = 0; i < total; i++) {
+      if (cancelRequested) break
+
       const fileItem = batchFiles.value[i]
       fileItem.status = '处理中...'
-      progressText.value = `处理 ${i + 1}/${batchFiles.value.length} - ${fileItem.name}`
+      progressText.value = `处理 ${i + 1}/${total} - ${fileItem.name}`
+      taskStore.updateTask(dockTaskId, {
+        progress: Math.round((i / total) * 100),
+        detail: `(${i + 1}/${total}) ${fileItem.name}`
+      })
 
       const task = await apiService.transcribe(fileItem.file, selectedModel.value, language.value, engine.value)
-      
+
       let isComplete = false
       while (!isComplete) {
+        if (cancelRequested) isComplete = true
+
         const status = await apiService.getTranscribeStatus(task.task_id)
-        progress.value = Math.round(((i + (status.progress || 0) / 100) / batchFiles.value.length) * 100)
-        
-        if (!status.transcribing) {
+        progress.value = Math.round(((i + (status.progress || 0) / 100) / total) * 100)
+        taskStore.updateTask(dockTaskId, { progress: progress.value })
+
+        if (!status.transcribing || cancelRequested) {
           isComplete = true
-          if (status.error) {
-            fileItem.status = '失败'
-          } else {
-            fileItem.status = '完成'
-          }
+          fileItem.status = cancelRequested ? '已取消' : (status.error ? '失败' : '完成')
         } else {
           await new Promise(resolve => setTimeout(resolve, 1000))
         }
       }
+      if (cancelRequested) break
     }
 
-    ElMessage.success(`批处理完成，共处理 ${batchFiles.value.length} 个文件`)
+    if (cancelRequested) {
+      taskStore.finishTask(dockTaskId, 'cancelled', `已取消 · 完成 ${batchFiles.value.filter(f => f.status === '完成').length}/${total}`)
+      ElMessage.info('批量识别已取消')
+    } else {
+      taskStore.finishTask(dockTaskId, 'success', `完成 · 共 ${total} 个文件`)
+      ElMessage.success(`批处理完成，共处理 ${total} 个文件`)
+    }
     close()
   } catch (error) {
+    if (dockTaskId !== null) taskStore.finishTask(dockTaskId, 'error', error.message)
     ElMessage.error(`批处理失败: ${error.message}`)
   } finally {
     isProcessing.value = false
+    dockTaskId = null
   }
 }
 

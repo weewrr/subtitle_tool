@@ -220,6 +220,21 @@
                 controls-position="right"
               />
             </el-form-item>
+            <el-divider content-position="left">阅读速度警告 (CPS)</el-divider>
+            <el-form-item label="CPS 警告阈值">
+              <el-input-number
+                v-model="draft.subtitleRules.cpsWarn"
+                :min="5" :max="40" :step="1"
+                controls-position="right"
+              />
+            </el-form-item>
+            <el-form-item label="CPS 危险阈值">
+              <el-input-number
+                v-model="draft.subtitleRules.cpsDanger"
+                :min="8" :max="60" :step="1"
+                controls-position="right"
+              />
+            </el-form-item>
             <el-divider />
             <el-form-item label="长句拆分阈值(字符)">
               <el-input-number
@@ -465,7 +480,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import { apiService } from '@/services/ApiService'
 import { useUIStore } from '@/stores/uiStore'
 
-const props = defineProps({
+defineProps({
   visible: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:visible'])
@@ -515,18 +530,18 @@ watch(activeTab, (tab) => {
 async function loadEnvInfo() {
   try {
     const res = await apiService.getDiagnostics()
-    if (res.success && res.data) {
-      envInfo.value = res.data
-      if (res.data.models) {
+    if (res) {
+      envInfo.value = res
+      if (res.models) {
         const allModels = [
-          ...res.data.models.whisper.map(m => ({ ...m, engine: 'whisper' })),
-          ...res.data.models.whisper_cpp.map(m => ({ ...m, engine: 'whisper-cpp' })),
-          ...res.data.models.whisper_ctranslate2.map(m => ({ ...m, engine: 'whisper-ctranslate2' }))
+          ...res.models.whisper.map(m => ({ ...m, engine: 'whisper' })),
+          ...res.models.whisper_cpp.map(m => ({ ...m, engine: 'whisper-cpp' })),
+          ...res.models.whisper_ctranslate2.map(m => ({ ...m, engine: 'whisper-ctranslate2' }))
         ]
         installedModels.value = allModels
       }
-      if (res.data.paths) {
-        modelPath.value = res.data.paths.model_path || ''
+      if (res.paths) {
+        modelPath.value = res.paths.model_path || ''
       }
     }
   } catch (e) {
@@ -539,8 +554,8 @@ async function loadCacheStats() {
   cacheLoading.value = true
   try {
     const res = await apiService.getCacheStats()
-    if (res.success && res.data) {
-      cacheStats.value = res.data
+    if (res) {
+      cacheStats.value = res
     }
   } catch (e) {
     console.error('加载缓存统计失败:', e)
@@ -552,13 +567,13 @@ async function loadCacheStats() {
 async function loadVersionInfo() {
   try {
     const res = await apiService.getVersionInfo()
-    if (res.success && res.data) {
-      versionInfo.value = res.data
+    if (res) {
+      versionInfo.value = res
     } else {
-      diagnosticsError.value = res.message || '获取版本信息失败'
+      diagnosticsError.value = '获取版本信息失败'
     }
   } catch (e) {
-    diagnosticsError.value = '后端服务未连接，请检查后端是否启动'
+    diagnosticsError.value = e.message || '后端服务未连接，请检查后端是否启动'
     console.error('加载版本信息失败:', e)
   }
 }
@@ -567,11 +582,7 @@ async function loadVersionInfo() {
 async function loadHealthCheck() {
   try {
     const res = await apiService.getHealthCheck()
-    if (res.success && res.data) {
-      healthStatus.value = res.data.overall ? 'ok' : 'error'
-    } else {
-      healthStatus.value = 'error'
-    }
+    healthStatus.value = res?.overall ? 'ok' : 'error'
   } catch (e) {
     healthStatus.value = 'error'
     console.error('健康检查失败:', e)
@@ -591,22 +602,22 @@ async function runDiagnostics() {
   envLoading.value = true
   try {
     const res = await apiService.getDiagnostics()
-    if (res.success && res.data) {
-      envInfo.value = res.data
-      if (res.data.models) {
+    if (res) {
+      envInfo.value = res
+      if (res.models) {
         const allModels = [
-          ...res.data.models.whisper.map(m => ({ ...m, engine: 'whisper' })),
-          ...res.data.models.whisper_cpp.map(m => ({ ...m, engine: 'whisper-cpp' })),
-          ...res.data.models.whisper_ctranslate2.map(m => ({ ...m, engine: 'whisper-ctranslate2' }))
+          ...res.models.whisper.map(m => ({ ...m, engine: 'whisper' })),
+          ...res.models.whisper_cpp.map(m => ({ ...m, engine: 'whisper-cpp' })),
+          ...res.models.whisper_ctranslate2.map(m => ({ ...m, engine: 'whisper-ctranslate2' }))
         ]
         installedModels.value = allModels
       }
       ElMessage.success('环境自检完成')
-      if (res.data.overall_status === 'error') {
+      if (res.overall_status === 'error') {
         ElMessage.warning('发现环境问题，请查看详情')
       }
     } else {
-      ElMessage.error(res.message || '环境自检失败')
+      ElMessage.error('环境自检失败')
     }
   } catch (e) {
     ElMessage.error('环境自检失败: ' + e.message)
@@ -633,12 +644,8 @@ function onPresetChange(preset) {
 // 打开目录
 async function openDir(type) {
   try {
-    const res = await apiService.openDirectory(type)
-    if (res.success) {
-      ElMessage.success(res.message || '已打开目录')
-    } else {
-      ElMessage.error(res.message || '打开目录失败')
-    }
+    await apiService.openDirectory(type)
+    ElMessage.success('已打开目录')
   } catch (e) {
     ElMessage.error('打开目录失败: ' + e.message)
   }
@@ -647,12 +654,8 @@ async function openDir(type) {
 // 打开日志目录
 async function openLogs() {
   try {
-    const res = await apiService.openLogsDirectory()
-    if (res.success) {
-      ElMessage.success(res.message || '已打开日志目录')
-    } else {
-      ElMessage.error(res.message || '打开日志目录失败')
-    }
+    await apiService.openLogsDirectory()
+    ElMessage.success('已打开日志目录')
   } catch (e) {
     ElMessage.error('打开日志目录失败: ' + e.message)
   }
@@ -662,11 +665,11 @@ async function openLogs() {
 async function copyDiagnostics() {
   try {
     const res = await apiService.getDiagnosticText()
-    if (res.success && res.data && res.data.text) {
-      await navigator.clipboard.writeText(res.data.text)
+    if (res && res.text) {
+      await navigator.clipboard.writeText(res.text)
       ElMessage.success('诊断信息已复制到剪贴板')
     } else {
-      ElMessage.error(res.message || '获取诊断信息失败')
+      ElMessage.error('获取诊断信息失败')
     }
   } catch (e) {
     ElMessage.error('复制诊断信息失败: ' + e.message)
@@ -687,12 +690,8 @@ async function confirmClean(type) {
     else if (type === 'waveform') res = await apiService.cleanWaveformCache()
     else if (type === 'task') res = await apiService.cleanTaskResults()
 
-    if (res.success) {
-      ElMessage.success(res.message || `已清理 ${res.data?.deleted || 0} 个文件`)
-      loadCacheStats()
-    } else {
-      ElMessage.error(res.message || '清理失败')
-    }
+    ElMessage.success(`已清理 ${res?.deleted || 0} 个文件`)
+    loadCacheStats()
   } catch (e) {
     if (e !== 'cancel' && e !== 'close') {
       ElMessage.error('清理失败: ' + (e.message || ''))
@@ -723,10 +722,13 @@ async function confirmReset() {
 }
 
 // 保存
-function onSave() {
-  if (settingsStore.saveDraft()) {
+async function onSave() {
+  const ok = await settingsStore.saveDraft()
+  if (ok) {
     ElMessage.success('设置已保存')
     emit('update:visible', false)
+  } else {
+    ElMessage.error(settingsStore.lastSaveError?.message || '设置保存失败,请检查本地存储')
   }
 }
 
@@ -786,7 +788,7 @@ function handleUpdateVisible(value) {
     margin-bottom: 6px;
   }
   .rec-alert {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--app-hover-bg);
     border: 1px solid $glass-border;
     :deep(.el-alert__title) {
       color: $text-color !important;
@@ -840,7 +842,7 @@ function handleUpdateVisible(value) {
 }
 
 :deep(.el-dialog__header) {
-  background: rgba(255, 255, 255, 0.1) !important;
+  background: var(--app-surface-muted) !important;
   border-bottom: 1px solid $glass-border !important;
   color: $text-color !important;
 }
@@ -854,11 +856,9 @@ function handleUpdateVisible(value) {
 }
 
 :deep(.el-tabs--border-card) {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 16px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: $border-radius-md;
 }
 
 :deep(.el-tabs__nav-wrap) {
@@ -876,11 +876,11 @@ function handleUpdateVisible(value) {
 
 :deep(.el-divider) {
   margin: 12px 0;
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--app-border);
 }
 
 :deep(.el-tag) {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--app-hover-bg);
   border-color: $glass-border;
   color: $text-color;
 }
