@@ -31,9 +31,6 @@ dist/
 # ---- 本地 IDE / 编辑器 ----
 .idea/
 .vscode/
-.codebuddy/
-.trae/
-.trae-cn/
 
 # ---- 环境密钥（.env.example 之外的本地配置）----
 .env
@@ -48,5 +45,3 @@ frontend/.env.production
 .DS_Store
 Thumbs.db
 
-# ---- 私人材料（论文等，不进公开仓库）----
-thesis/
