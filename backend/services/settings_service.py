@@ -3,10 +3,10 @@ import sys
 import platform
 import shutil
 import subprocess
-import glob as glob_mod
 from datetime import datetime, timedelta
 
 from backend.config.settings import Config
+from backend.utils.temp_dir import get_waveform_temp_dir
 
 
 class SettingsService:
@@ -288,13 +288,15 @@ class SettingsService:
 
         stats['temp_audio_mb'] = round(stats['temp_audio']['total_size'] / (1024 * 1024), 2)
 
-        # 波形缓存（在 audio 目录下的 .waveform 文件）
+        # 波形缓存（Temp/waveform 下的 JSON 缓存文件）
+        waveform_dir = get_waveform_temp_dir()
         waveform_size = 0
         waveform_count = 0
-        if os.path.isdir(Config.AUDIO_DIR):
-            for f in glob_mod.glob(os.path.join(Config.AUDIO_DIR, '*.waveform*')):
-                if os.path.isfile(f):
-                    waveform_size += os.path.getsize(f)
+        if os.path.isdir(waveform_dir):
+            for f in os.listdir(waveform_dir):
+                fp = os.path.join(waveform_dir, f)
+                if os.path.isfile(fp):
+                    waveform_size += os.path.getsize(fp)
                     waveform_count += 1
         stats['temp_waveform'] = {'file_count': waveform_count, 'total_size': waveform_size}
         stats['temp_waveform_mb'] = round(waveform_size / (1024 * 1024), 2)
@@ -334,17 +336,19 @@ class SettingsService:
         return {'deleted': deleted, 'errors': errors}
 
     def clean_waveform_cache(self):
-        """清理波形缓存"""
+        """清理波形缓存（Temp/waveform 下的 JSON 缓存文件）"""
         deleted = 0
         errors = []
-        if os.path.isdir(Config.AUDIO_DIR):
-            for f in glob_mod.glob(os.path.join(Config.AUDIO_DIR, '*.waveform*')):
-                if os.path.isfile(f):
+        waveform_dir = get_waveform_temp_dir()
+        if os.path.isdir(waveform_dir):
+            for f in os.listdir(waveform_dir):
+                fp = os.path.join(waveform_dir, f)
+                if os.path.isfile(fp):
                     try:
-                        os.remove(f)
+                        os.remove(fp)
                         deleted += 1
                     except Exception as e:
-                        errors.append(f'删除 {os.path.basename(f)} 失败: {str(e)}')
+                        errors.append(f'删除 {f} 失败: {str(e)}')
         return {'deleted': deleted, 'errors': errors}
 
     def clean_task_results(self):

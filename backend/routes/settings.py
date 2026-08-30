@@ -4,14 +4,18 @@ from flask import Blueprint, request, jsonify
 
 from backend.config.settings import Config
 from backend.services.settings_service import settings_service
+from backend.utils.response import ok
+from backend.utils.temp_dir import get_temp_dir
 
 settings_bp = Blueprint('settings', __name__, url_prefix='/api')
 
 
 def make_response(success=True, data=None, error_code=None, message=''):
-    """统一返回结构"""
+    """统一返回结构(委托 utils.response.ok;失败分支状态码由调用点附加)"""
+    if success:
+        return ok(data, message=message or 'ok')
     return jsonify({
-        'success': success,
+        'success': False,
         'data': data,
         'error_code': error_code,
         'message': message
@@ -144,7 +148,7 @@ def open_directory():
         'whisper_cpp': Config.WHISPER_CPP_MODEL_DIR,
         'whisper_ctranslate2': Config.WHISPER_CTRANSLATE2_MODEL_DIR,
         'audio': Config.AUDIO_DIR,
-        'temp': Config.AUDIO_DIR,
+        'temp': get_temp_dir(),
         'logs': os.path.join(Config.BASE_DIR, 'logs')
     }
 

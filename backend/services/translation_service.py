@@ -1,11 +1,13 @@
 import os
-import sys
-import subprocess
+import re
 import threading
 import requests
 import json
 
 from backend.config.settings import Config
+
+# LLM/翻译 API 请求超时(秒):连接 10s + 读取 120s(长文本生成需要余量)
+HTTP_TIMEOUT = (10, 120)
 
 
 class TranslationService:
@@ -18,55 +20,76 @@ class TranslationService:
             'result': None
         }
     
+    # 兜底清洗：小模型偶尔会把提示词里的时长上下文复述进译文开头，
+    # 如「大约3.8秒的演讲时长。」「时长约为2.9秒。」——只剥离行首这类声明。
+    _DURATION_LEAK_PATTERN = re.compile(
+        r'^(?:大约|大約|时长|時長)?约?为?\s*\d+(?:\.\d+)?\s*(?:秒|秒钟|秒鐘)'
+        r'[^，。；,;\n]*[，。；,;]?\s*'
+    )
+
+    @classmethod
+    def _strip_duration_leak(cls, translated):
+        """剥离译文行首泄漏的时长声明前缀；只匹配行首，避免误伤正文合法内容。"""
+        if not translated or not isinstance(translated, str):
+            return translated
+        stripped = cls._DURATION_LEAK_PATTERN.sub('', translated, count=1)
+        return stripped if stripped else translated
+
     def translate(self, text, from_lang, to_lang, engine='ollama', model='gemma3:1b',
                   prompt_template=None, temperature=0.0, max_tokens=2048, keep_formatting=True, task='translate',
                   duration=None, api_key=None):
         if engine == 'ollama':
-            return self._translate_with_ollama(text, from_lang, to_lang, model, 
-                                               prompt_template, temperature, max_tokens, task,
-                                               duration=duration)
-        elif engine == 'deepseek':
-            ds_model = model if model and model != 'gemma3:1b' else 'deepseek-chat'
-            return self._translate_with_deepseek(text, from_lang, to_lang, ds_model, api_key,
+            result = self._translate_with_ollama(text, from_lang, to_lang, model,
                                                  prompt_template, temperature, max_tokens, task,
                                                  duration=duration)
+        elif engine == 'deepseek':
+            ds_model = model if model and model != 'gemma3:1b' else 'deepseek-chat'
+            result = self._translate_with_deepseek(text, from_lang, to_lang, ds_model, api_key,
+                                                   prompt_template, temperature, max_tokens, task,
+                                                   duration=duration)
         elif engine == 'bailian':
             bl_model = model if model and model != 'gemma3:1b' else 'qwen-plus'
-            return self._translate_with_bailian(text, from_lang, to_lang, bl_model, api_key,
-                                                prompt_template, temperature, max_tokens, task,
-                                                duration=duration)
-        elif engine == 'deepL':
-            return self._translate_with_deepl(text, from_lang, to_lang)
-        elif engine == 'google':
-            return self._translate_with_google(text, from_lang, to_lang)
-        elif engine == 'chatgpt':
-            return self._translate_with_chatgpt(text, from_lang, to_lang, 
-                                                prompt_template, temperature, max_tokens, task,
-                                                duration=duration)
-        elif engine == 'anthropic':
-            return self._translate_with_anthropic(text, from_lang, to_lang, 
+            result = self._translate_with_bailian(text, from_lang, to_lang, bl_model, api_key,
                                                   prompt_template, temperature, max_tokens, task,
                                                   duration=duration)
+        elif engine == 'deepL':
+            result = self._translate_with_deepl(text, from_lang, to_lang)
+        elif engine == 'google':
+            result = self._translate_with_google(text, from_lang, to_lang)
+        elif engine == 'chatgpt':
+            result = self._translate_with_chatgpt(text, from_lang, to_lang,
+                                                  prompt_template, temperature, max_tokens, task,
+                                                  duration=duration)
+        elif engine == 'anthropic':
+            result = self._translate_with_anthropic(text, from_lang, to_lang,
+                                                    prompt_template, temperature, max_tokens, task,
+                                                    duration=duration)
         elif engine == 'gemini':
-            return self._translate_with_gemini(text, from_lang, to_lang, 
-                                               prompt_template, temperature, max_tokens, task,
-                                               duration=duration)
+            result = self._translate_with_gemini(text, from_lang, to_lang,
+                                                 prompt_template, temperature, max_tokens, task,
+                                                 duration=duration)
         elif engine == 'mistral':
-            return self._translate_with_mistral(text, from_lang, to_lang, 
-                                                prompt_template, temperature, max_tokens, task,
-                                                duration=duration)
+            result = self._translate_with_mistral(text, from_lang, to_lang,
+                                                  prompt_template, temperature, max_tokens, task,
+                                                  duration=duration)
         elif engine == 'libre':
-            return self._translate_with_libre(text, from_lang, to_lang)
+            result = self._translate_with_libre(text, from_lang, to_lang)
         else:
-            return self._translate_with_ollama(text, from_lang, to_lang, model, 
-                                               prompt_template, temperature, max_tokens, task,
-                                               duration=duration)
+            result = self._translate_with_ollama(text, from_lang, to_lang, model,
+                                                 prompt_template, temperature, max_tokens, task,
+                                                 duration=duration)
+
+        # 输出侧兜底：剥离小模型可能复述进译文的时长声明
+        if isinstance(result, dict) and result.get('translated') and not result.get('error'):
+            result['translated'] = self._strip_duration_leak(result['translated'])
+        return result
     
     # 默认「时长感知」翻译提示词。
     # duration 为软约束：让模型在已知可用朗读时间的情况下，
     # 主动选择更简洁、更口语化、仍准确自然的表达，而不是追求最短或硬凑字数。
     _DURATION_AWARE_TRANSLATE_PROMPT = (
         "Translate from {source_language} to {target_language}.\n\n"
+        "[Context - for your reference only, NEVER include in the translation]\n"
         "The original speech duration is approximately {duration} seconds.\n\n"
         "Translate the text naturally and concisely, taking the available speaking time into consideration.\n\n"
         "Preserve the original meaning and all important information.\n"
@@ -77,7 +100,11 @@ class TranslationService:
         "Do not sacrifice important meaning, accuracy, grammar, or naturalness just to make the translation shorter.\n\n"
         "Use natural expressions appropriate for the target language and context.\n\n"
         "Keep the original punctuation structure as much as possible, while allowing natural punctuation adjustments required by the target language.\n\n"
-        "Do not censor the translation.\n"
+        "Do not censor the translation.\n\n"
+        "CRITICAL: The duration and speaking time are internal context only. "
+        "Your output must contain ONLY the translation of the text itself. "
+        "NEVER mention, reference, or translate the duration, timing, or any meta-information "
+        "(e.g. do NOT output phrases like 'about X seconds of speech').\n"
         "Give only the translated text without comments, explanations, notes, or labels.\n\n"
         "Text:\n{text}"
     )
@@ -182,15 +209,9 @@ Text to check:
         # 原始（向后兼容）默认提示词
         return f'Translate the following {from_name} text to {to_name}. Only output the translation result, nothing else.\n\n{text}'
     
-    def _translate_with_ollama(self, text, from_lang, to_lang, model, 
+    def _translate_with_ollama(self, text, from_lang, to_lang, model,
                                prompt_template=None, temperature=0.0, max_tokens=2048, task='translate',
                                duration=None):
-        try:
-            import requests
-        except ImportError:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'requests', '-q'])
-            import requests
-        
         duration_enabled = getattr(Config, 'TRANSLATION_DURATION_CONSTRAINT_ENABLED', True)
         prompt = self._build_prompt(text, from_lang, to_lang, prompt_template, task,
                                     duration=duration, duration_enabled=duration_enabled)
@@ -212,7 +233,8 @@ Text to check:
                         'temperature': temperature,
                         'num_predict': max_tokens
                     }
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
             
             if response.status_code == 200:
@@ -252,7 +274,8 @@ Text to check:
                     'text': text,
                     'source_lang': from_lang.upper(),
                     'target_lang': to_lang.upper()
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
             
             if response.status_code == 200:
@@ -274,18 +297,36 @@ Text to check:
                 'error': str(e)
             }
     
+    # 前端语言代码 → Google 语言代码(deep-translator 需要 zh-CN 形式)
+    _GOOGLE_LANG_CODES = {
+        'zh': 'zh-CN', 'zh-cn': 'zh-CN', 'zh-hans': 'zh-CN',
+        'zh-tw': 'zh-TW', 'zh-hant': 'zh-TW',
+        'en': 'en', 'ja': 'ja', 'ko': 'ko', 'auto': 'auto',
+    }
+
+    def _google_lang_code(self, lang):
+        lang = str(lang or 'auto').strip()
+        return self._GOOGLE_LANG_CODES.get(lang.lower(), lang)
+
     def _translate_with_google(self, text, from_lang, to_lang):
+        # deep-translator:稳定的翻译客户端库(替代非官方 googletrans,后者长期不可用)
         try:
-            from googletrans import Translator
+            from deep_translator import GoogleTranslator
         except ImportError:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'googletrans==4.0.0-rc1', '-q'])
-            from googletrans import Translator
-        
-        try:
-            translator = Translator()
-            result = translator.translate(text, src=from_lang, dest=to_lang)
             return {
-                'translated': result.text,
+                'translated': text,
+                'engine': 'google',
+                'error': 'deep-translator 未安装,请执行 pip install deep-translator'
+            }
+
+        try:
+            translator = GoogleTranslator(
+                source=self._google_lang_code(from_lang),
+                target=self._google_lang_code(to_lang)
+            )
+            result = translator.translate(text)
+            return {
+                'translated': result,
                 'engine': 'google'
             }
         except Exception as e:
@@ -327,9 +368,10 @@ Text to check:
                     ],
                     'temperature': temperature,
                     'max_tokens': max_tokens
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 return {
@@ -381,9 +423,10 @@ Text to check:
                         }
                     ],
                     'max_tokens': max_tokens
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 return {
@@ -436,7 +479,8 @@ Text to check:
                         'temperature': temperature,
                         'maxOutputTokens': max_tokens
                     }
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
             
             if response.status_code == 200:
@@ -490,9 +534,10 @@ Text to check:
                     ],
                     'temperature': temperature,
                     'max_tokens': max_tokens
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 return {
@@ -544,7 +589,7 @@ Text to check:
                     'temperature': temperature,
                     'max_tokens': max_tokens
                 },
-                timeout=60
+                timeout=HTTP_TIMEOUT
             )
             
             if response.status_code == 200:
@@ -599,7 +644,8 @@ Text to check:
                     'source': from_lang,
                     'target': to_lang,
                     'format': 'text'
-                }
+                },
+                timeout=HTTP_TIMEOUT
             )
             
             if response.status_code == 200:

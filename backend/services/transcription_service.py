@@ -21,10 +21,15 @@ logger = logging.getLogger(__name__)
 class TranscriptionService:
     """Background transcription jobs with per-job progress and event delivery."""
 
+    # 同时运行的转录任务上限:每个任务都要加载 Whisper 模型并吃满 GPU/CPU,
+    # 并发跑会打爆显存/内存,排队执行(queued 状态)是唯一安全策略。
+    MAX_CONCURRENT_JOBS = 1
+
     def __init__(self):
         self._jobs = {}
         self._lock = threading.RLock()
         self._event = threading.Condition(self._lock)
+        self._concurrency_slots = threading.Semaphore(self.MAX_CONCURRENT_JOBS)
         # whisper patches tqdm at module scope; serialize this engine while the
         # temporary progress bridge is installed.
         self._openai_transcribe_lock = threading.Lock()
@@ -97,13 +102,33 @@ class TranscriptionService:
         return {'task_id': task_id, 'status': 'started'}
 
     def _transcribe_thread(self, task_id):
-        temp_audio_path = None
         file_path = None
         try:
             with self._lock:
                 job = self._jobs[task_id]
                 file_path, model_name, language = job['file_path'], job['model_name'], job['language']
                 engine, use_gpu = job['engine'], job['use_gpu']
+            # 并发上限:超出的任务在此轮询排队,保持 queued 状态直至拿到执行槽。
+            # 轮询间隔内检查取消标记,排队中的任务可即时取消。
+            while not self._concurrency_slots.acquire(timeout=0.5):
+                if self._is_cancelled(task_id):
+                    raise RuntimeError('任务已取消')
+            try:
+                self._run_transcription(task_id, file_path, model_name, language, engine, use_gpu)
+            finally:
+                self._concurrency_slots.release()
+        except Exception as exc:
+            logger.exception('转录任务 %s 失败', task_id)
+            cancelled = self._is_cancelled(task_id)
+            self._update_job(task_id, transcribing=False, phase='cancelled' if cancelled else 'error',
+                             status='cancelled' if cancelled else 'error', error=None if cancelled else str(exc), progress=0 if cancelled else self.get_status(task_id)['progress'])
+            # 排队阶段失败/取消时上传副本的清理(转录流程内部的清理不会执行)
+            self._cleanup_temp_files((file_path,))
+
+    def _run_transcription(self, task_id, file_path, model_name, language, engine, use_gpu):
+        """实际转录流程(调用方已持有并发槽)。"""
+        temp_audio_path = None
+        try:
             duration = self._get_media_duration(file_path)
             self._update_job(task_id, media_duration=duration)
             # Normalize every input to a known PCM format. OpenAI Whisper then
@@ -121,31 +146,31 @@ class TranscriptionService:
             self._update_job(task_id, phase='generating_subtitles', status='generating_subtitles', progress=98)
             self._update_job(task_id, transcribing=False, phase='completed', status='completed', progress=100, result=result,
                              processed_seconds=duration or self.get_status(task_id)['processed_seconds'], eta_seconds=0)
-        except Exception as exc:
-            logger.exception('转录任务 %s 失败', task_id)
-            cancelled = self._is_cancelled(task_id)
-            self._update_job(task_id, transcribing=False, phase='cancelled' if cancelled else 'error',
-                             status='cancelled' if cancelled else 'error', error=None if cancelled else str(exc), progress=0 if cancelled else self.get_status(task_id)['progress'])
         finally:
-            # 清理临时音频文件与上传的视频副本。
-            # 仅删除位于 Temp/transcription 目录内的文件（即上传时复制的副本），
-            # 用户通过 file_path 直传的本地文件不受影响。
-            trans_dir = os.path.normcase(os.path.abspath(get_transcription_temp_dir()))
-            for path in (temp_audio_path, file_path):
-                if not path:
-                    continue
-                try:
-                    norm = os.path.normcase(os.path.abspath(path))
-                    if norm.startswith(trans_dir + os.sep) and os.path.exists(norm):
-                        os.unlink(norm)
-                except OSError:
-                    pass
-            # 目录已空则移除，避免残留空的 transcription 文件夹
+            self._cleanup_temp_files((temp_audio_path, file_path))
+
+    def _cleanup_temp_files(self, paths):
+        """清理临时音频文件与上传的视频副本。
+
+        仅删除位于 Temp/transcription 目录内的文件（即上传时复制的副本），
+        用户通过 file_path 直传的本地文件不受影响。
+        """
+        trans_dir = os.path.normcase(os.path.abspath(get_transcription_temp_dir()))
+        for path in paths:
+            if not path:
+                continue
             try:
-                if not os.listdir(trans_dir):
-                    os.rmdir(trans_dir)
+                norm = os.path.normcase(os.path.abspath(path))
+                if norm.startswith(trans_dir + os.sep) and os.path.exists(norm):
+                    os.unlink(norm)
             except OSError:
                 pass
+        # 目录已空则移除，避免残留空的 transcription 文件夹
+        try:
+            if not os.listdir(trans_dir):
+                os.rmdir(trans_dir)
+        except OSError:
+            pass
 
     def _language_code(self, language):
         if not language or language.lower() == 'auto-detect': return None

@@ -1,3 +1,5 @@
+# 直接依赖(宽松下限,日常开发安装)
+# 可复现部署请使用锁定文件:pip install -r requirements.lock.txt
 flask>=2.0.0
 flask-cors>=3.0.0
 openai-whisper>=20230314
@@ -17,4 +19,5 @@ librosa>=0.10.0
 requests>=2.28.0
 numpy>=1.24.0
 packaging>=24.0
-googletrans==4.0.0-rc1
+deep-translator>=1.11.0
+waitress>=3.0.0

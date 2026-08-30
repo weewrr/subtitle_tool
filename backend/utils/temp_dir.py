@@ -1,5 +1,8 @@
+import logging
 import os
 import tempfile
+
+logger = logging.getLogger(__name__)
 
 def get_project_root():
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,15 +39,15 @@ def cleanup_temp_dir(max_age_hours=24):
             try:
                 if current_time - os.path.getmtime(file_path) > max_age_seconds:
                     os.remove(file_path)
-            except:
-                pass
+            except OSError as e:
+                logger.warning('清理临时文件失败 %s: %s', file_path, e)
         for dir in dirs:
             dir_path = os.path.join(root, dir)
             try:
                 if not os.listdir(dir_path):
                     os.rmdir(dir_path)
-            except:
-                pass
+            except OSError as e:
+                logger.warning('清理临时目录失败 %s: %s', dir_path, e)
 
 PROJECT_ROOT = get_project_root()
 TEMP_DIR = get_temp_dir()

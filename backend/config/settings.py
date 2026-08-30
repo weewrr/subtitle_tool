@@ -4,7 +4,11 @@ class Config:
     # 服务器配置
     HOST = '127.0.0.1'
     PORT = int(os.environ.get('SUBTITLE_TOOL_BACKEND_PORT', 5000))
-    DEBUG = os.environ.get('SUBTITLE_TOOL_BACKEND_DEBUG', '1') == '1'
+    # 调试模式默认关闭;开发环境由 Electron 启动脚本显式注入 SUBTITLE_TOOL_BACKEND_DEBUG=1
+    DEBUG = os.environ.get('SUBTITLE_TOOL_BACKEND_DEBUG', '0') == '1'
+
+    # 上传文件大小上限(4GB):视频/音频上传的硬上限,超限返回 413
+    MAX_UPLOAD_SIZE = 4 * 1024 * 1024 * 1024
     
     # 翻译：时长约束（duration-aware translation），默认开启。
     # 关闭后（设为 0/false/no/off 或环境变量 TRANSLATION_DURATION_CONSTRAINT_ENABLED=false）

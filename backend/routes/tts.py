@@ -1,11 +1,15 @@
 import os
 import io
+import logging
 import subprocess
 import soundfile as sf
 from flask import Blueprint, request, jsonify, send_file
 from backend.services.spark_tts_service import spark_tts_service
 from backend.utils.temp_dir import get_tts_temp_dir
+from backend.utils.file_utils import sanitize_filename
 from backend.config.settings import Config
+
+logger = logging.getLogger(__name__)
 
 tts_bp = Blueprint('tts', __name__, url_prefix='/api/tts')
 
@@ -97,7 +101,14 @@ def upload_voice():
             }), 400
         
         speech_dir = get_speech_dir()
-        filename = f"{os.path.splitext(file.filename)[0]}{ext}"
+        # 净化文件名,防止路径遍历写入任意目录
+        safe_name = sanitize_filename(file.filename)
+        if not safe_name:
+            return jsonify({
+                'success': False,
+                'error': '文件名不合法'
+            }), 400
+        filename = safe_name
         file_path = os.path.join(speech_dir, filename)
         file.save(file_path)
         
@@ -121,15 +132,30 @@ def upload_voice():
 def delete_voice(filename):
     """删除参考音频"""
     try:
+        # 净化文件名,防止路径遍历删除任意文件
+        safe_name = sanitize_filename(filename)
+        if not safe_name:
+            return jsonify({
+                'success': False,
+                'error': '文件名不合法'
+            }), 400
+
         speech_dir = get_speech_dir()
-        file_path = os.path.join(speech_dir, filename)
-        
+        file_path = os.path.join(speech_dir, safe_name)
+
+        # 双重保险:解析后必须仍落在 speech 目录内
+        if os.path.commonpath([os.path.abspath(file_path), speech_dir]) != os.path.abspath(speech_dir):
+            return jsonify({
+                'success': False,
+                'error': '文件名不合法'
+            }), 400
+
         if not os.path.exists(file_path):
             return jsonify({
                 'success': False,
                 'error': '文件不存在'
             }), 404
-        
+
         os.remove(file_path)
         
         return jsonify({
@@ -164,16 +190,19 @@ def get_result():
 def download_audio(filename):
     """下载生成的音频"""
     try:
+        # 净化文件名,防止路径遍历
+        safe_name = sanitize_filename(filename)
+        if not safe_name:
+            return jsonify({'error': '文件名不合法'}), 400
+
         temp_dir = get_tts_temp_dir()
         for subdir in os.listdir(temp_dir):
             subdir_path = os.path.join(temp_dir, subdir)
             if os.path.isdir(subdir_path):
-                for file in os.listdir(subdir_path):
-                    if file == filename or file.endswith('_dubbed.wav'):
-                        file_path = os.path.join(subdir_path, file)
-                        if os.path.exists(file_path):
-                            return send_file(file_path, as_attachment=True, download_name=filename)
-        
+                file_path = os.path.join(subdir_path, safe_name)
+                if os.path.isfile(file_path):
+                    return send_file(file_path, as_attachment=True, download_name=safe_name)
+
         return jsonify({'error': '文件不存在'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -213,20 +242,15 @@ def generate_subtitle_audio():
         if not video_duration_ms and subtitles:
             try:
                 video_duration_ms = max(int(s.get('end_time', 0)) for s in subtitles)
-                print(f"[TTS ROUTE] using last subtitle end as duration: {video_duration_ms} ms")
+                logger.info('[TTS ROUTE] using last subtitle end as duration: %s ms', video_duration_ms)
             except (TypeError, ValueError):
                 video_duration_ms = None
-        
-        print(f"\n{'='*60}")
-        print(f"[TTS ROUTE] Received request from frontend:")
-        print(f"  - subtitles count: {len(subtitles)}")
-        print(f"  - prompt_speech_path: {prompt_speech_path}")
-        print(f"  - prompt_text: {prompt_text}")
-        print(f"  - engine: {engine}")
-        print(f"  - mode: {mode}")
-        print(f"  - video_path: {video_path}")
-        print(f"{'='*60}\n")
-        
+
+        logger.info(
+            '[TTS ROUTE] generate-subtitles request: subtitles=%s engine=%s mode=%s video_path=%s prompt_speech=%s',
+            len(subtitles), engine, mode, video_path, prompt_speech_path
+        )
+
         if not subtitles:
             return jsonify({
                 'success': False,
@@ -250,7 +274,7 @@ def generate_subtitle_audio():
         # 优先级确定，此处不可再用 ffprobe 覆盖，否则浏览器模式下（无 video_path）
         # 会把它重置为 None，导致整体变速失效。
         if video_duration_ms:
-            print(f"[TTS ROUTE] final video_duration_ms for tempo: {video_duration_ms} ms")
+            logger.info('[TTS ROUTE] final video_duration_ms for tempo: %s ms', video_duration_ms)
         
         result = spark_tts_service.generate_subtitle_audio_async(
             subtitles,

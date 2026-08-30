@@ -95,13 +95,11 @@ class TTSService:
         if not prompt_speech_path:
             return {'error': '请选择参考音频'}
         
-        print(f"[TTS_SERVICE] generate_subtitle_audio_async called:")
-        print(f"  - prompt_speech_path: {prompt_speech_path}")
-        print(f"  - prompt_text: {prompt_text}")
-        print(f"  - engine: {engine}")
-        print(f"  - mode: {mode}")
-        print(f"  - video_duration_ms: {video_duration_ms}")
-        
+        logger.info(
+            '[TTS_SERVICE] generate_subtitle_audio_async: prompt_speech=%s engine=%s mode=%s video_duration_ms=%s',
+            prompt_speech_path, engine, mode, video_duration_ms
+        )
+
         thread = threading.Thread(
             target=self._generate_thread,
             args=(subtitles, prompt_speech_path, prompt_text, output_dir, engine, mode, video_duration_ms)
@@ -117,19 +115,17 @@ class TTSService:
             self.status['status'] = 'preparing'
             self.status['error'] = None
             self.status['result'] = None
+            # 上一次任务的中止标志必须复位,否则新任务启动后立即被 terminate
+            self.status['aborted'] = False
             self.status['current_subtitle'] = 0
             self.status['total_subtitles'] = len(subtitles)
             self.status['engine'] = engine
-            
-            print(f"\n{'='*60}")
-            print(f"[TTS_SERVICE] _generate_thread started:")
-            print(f"  - prompt_speech_path: {prompt_speech_path}")
-            print(f"  - prompt_text: {prompt_text}")
-            print(f"  - output_dir: {output_dir}")
-            print(f"  - engine: {engine}")
-            print(f"  - mode: {mode}")
-            print(f"{'='*60}\n")
-            
+
+            logger.info(
+                '[TTS_SERVICE] _generate_thread started: prompt_speech=%s output_dir=%s engine=%s mode=%s',
+                prompt_speech_path, output_dir, engine, mode
+            )
+
             import uuid
             temp_id = str(uuid.uuid4())[:8]
             
@@ -176,7 +172,6 @@ class TTSService:
             
             logger.info(f"Using engine: {engine}")
             logger.info(f"Running command: {' '.join(cmd)}")
-            print(f"[TTS_SERVICE] Running command: {' '.join(cmd)}")
             
             # 强制子进程以 UTF-8 输出日志，配合 errors='replace' 容错解码，
             # 避免默认 GBK 解码失败导致读取线程死亡、管道写满、配音脚本永久阻塞
@@ -204,7 +199,6 @@ class TTSService:
                         line = line.strip()
                         if not line:
                             continue
-                        print(f"[{log_prefix}] {line}")
                         logger.info(f"{log_prefix}: {line}")
                         m = progress_pattern.search(line)
                         if m:
@@ -215,7 +209,6 @@ class TTSService:
                                 self.status['total_subtitles'] = total
                                 self.status['progress'] = min(95, 5 + int(90 * current / total))
                 except Exception as e:
-                    print(f"[ERROR] Error reading {log_prefix}: {e}")
                     logger.error(f"Error reading {log_prefix}: {e}")
             
             stdout_thread = threading.Thread(target=read_output, args=(process.stdout, 'STDOUT'))

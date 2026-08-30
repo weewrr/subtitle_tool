@@ -1,5 +1,4 @@
 import os
-import sys
 import subprocess
 import threading
 import tempfile
@@ -36,14 +35,15 @@ class WhisperCTranslate2Service:
         os.makedirs(Config.WHISPER_CTRANSLATE2_MODEL_DIR, exist_ok=True)
 
     def _ensure_faster_whisper_installed(self):
-        """确保 faster-whisper 已安装"""
+        """获取 faster_whisper.WhisperModel;未安装时抛出明确错误提示。
+
+        不在请求内执行 pip install(耗时且可能失败),由用户按提示手动安装。
+        """
         try:
             from faster_whisper import WhisperModel
             return WhisperModel
         except ImportError:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'faster-whisper', '-i', 'https://pypi.tuna.tsinghua.edu.cn/simple', '-q'])
-            from faster_whisper import WhisperModel
-            return WhisperModel
+            raise RuntimeError('faster-whisper 未安装,请执行 pip install faster-whisper')
 
     def get_downloaded_models(self):
         """获取已下载的 Whisper-CTranslate2 模型列表"""

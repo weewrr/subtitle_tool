@@ -1,6 +1,4 @@
 import os
-import subprocess
-import platform
 from flask import Blueprint, request, jsonify
 
 from backend.config.settings import Config
@@ -35,20 +33,8 @@ def list_models():
 def list_downloaded_models():
     return jsonify(whisper_service.get_downloaded_models())
 
-@whisper_bp.route('/open-folder', methods=['POST'])
-def open_model_folder():
-    cache_dir = Config.WHISPER_CACHE_DIR
-    os.makedirs(cache_dir, exist_ok=True)
-    try:
-        if platform.system() == 'Windows':
-            subprocess.run(['explorer', cache_dir])
-        elif platform.system() == 'Darwin':
-            subprocess.run(['open', cache_dir])
-        else:
-            subprocess.run(['xdg-open', cache_dir])
-        return jsonify({'message': '已打开模型文件夹'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# 打开模型文件夹:已合并到 /api/open-directory(type='model'),
+# 前端 ApiService.openModelFolder 直接调用该统一接口。
 
 # Whisper.cpp 模型管理
 @whisper_bp.route('/whisper-cpp/list', methods=['GET'])

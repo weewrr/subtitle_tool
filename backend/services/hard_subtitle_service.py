@@ -1,42 +1,19 @@
+import logging
 import os
 import re
-import subprocess
 import threading
-import shutil
 import uuid
-from pathlib import Path
 
+from backend.services.ffmpeg_task_service import FFmpegTaskService
 from backend.utils.temp_dir import get_temp_dir
 
+logger = logging.getLogger(__name__)
 
-class HardSubtitleService:
+
+class HardSubtitleService(FFmpegTaskService):
     def __init__(self):
-        self.progress = 0
-        self.status = 'idle'
-        self.error = None
-        self.output_path = None
-        self._process = None
-        self._abort = False
-    
-    def get_ffmpeg_path(self):
-        ffmpeg = shutil.which('ffmpeg')
-        if ffmpeg:
-            return ffmpeg
-        
-        common_paths = [
-            r'C:\ffmpeg\bin\ffmpeg.exe',
-            r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
-            os.path.expanduser('~/.local/bin/ffmpeg'),
-            '/usr/bin/ffmpeg',
-            '/usr/local/bin/ffmpeg',
-        ]
-        
-        for path in common_paths:
-            if os.path.exists(path):
-                return path
-        
-        return 'ffmpeg'
-    
+        super().__init__('hard-subtitle')
+
     def generate_ass_file(self, subtitle_content, style_config, output_path):
         ass_content = """[Script Info]
 Title: Subtitle
@@ -53,7 +30,7 @@ Style: Default,{font_name},{font_size},{primary_color},{secondary_color},{outlin
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 {events}
 """
-        
+
         width = style_config.get('width', 1920)
         height = style_config.get('height', 1080)
         font_name = style_config.get('font_name', 'Arial')
@@ -70,14 +47,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         primary_color = self._rgb_to_ass_color(style_config.get('text_color', '#FFFFFF'))
         outline_color = self._rgb_to_ass_color(style_config.get('outline_color', '#000000'))
         back_color = '&H00000000'
-        
+
         events = []
         for line in subtitle_content:
             start = self._srt_time_to_ass(line.get('start', '00:00:00,000'))
             end = self._srt_time_to_ass(line.get('end', '00:00:00,000'))
             text = line.get('text', '').replace('\n', '\\N')
             events.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
-        
+
         return ass_content.format(
             width=width,
             height=height,
@@ -94,7 +71,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             margin_bottom=margin_bottom,
             events='\n'.join(events)
         )
-    
+
     def _to_ass_color(self, r, g, b, alpha=255):
         ass_alpha = 255 - max(0, min(255, int(alpha)))
         return f'&H{ass_alpha:02X}{b:02X}{g:02X}{r:02X}'
@@ -149,149 +126,66 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         r, g, b, a = self._parse_color(color_value)
         return self._to_ass_color(r, g, b, a)
 
-    def _rgb_to_ass_color_with_opacity(self, color_value, opacity):
-        r, g, b, _ = self._parse_color(color_value)
-        alpha = max(0, min(255, int(round(opacity * 255))))
-        return self._to_ass_color(r, g, b, alpha)
-    
     def _srt_time_to_ass(self, srt_time):
         parts = srt_time.replace(',', '.').split(':')
         hours = int(parts[0])
         minutes = int(parts[1])
         seconds = float(parts[2])
         return f'{hours}:{minutes:02d}:{seconds:05.2f}'
-    
-    def generate_hard_subtitle(self, video_path, subtitle_data, output_path, config, callback=None):
-        def _run():
-            try:
-                self.status = 'processing'
-                self.progress = 0
-                self._abort = False
-                self.error = None
-                
-                ffmpeg_path = self.get_ffmpeg_path()
-                print(f"[DEBUG] FFmpeg path: {ffmpeg_path}")
-                print(f"[DEBUG] Video path: {video_path}")
-                print(f"[DEBUG] Output path: {output_path}")
-                print(f"[DEBUG] Subtitle data count: {len(subtitle_data)}")
-                
-                with open(os.path.join(get_temp_dir(), f"{uuid.uuid4()}.ass"), 'w', encoding='utf-8') as ass_file:
-                    ass_content = self.generate_ass_file(subtitle_data, config.get('style', {}), ass_file.name)
-                    ass_file.write(ass_content)
-                    ass_path = ass_file.name
-                
-                print(f"[DEBUG] ASS file path: {ass_path}")
-                print(f"[DEBUG] ASS content preview: {ass_content[:500]}...")
-                
-                video_encoding = config.get('video_encoding', 'libx264')
-                preset = config.get('preset', 'medium')
-                crf = str(config.get('crf', 23))
-                audio_encoding = config.get('audio_encoding', 'copy')
-                
-                ass_path_escaped = ass_path.replace('\\', '/').replace(':', '\\:')
-                
-                cmd = [
-                    ffmpeg_path,
-                    '-y',
-                    '-i', video_path,
-                    '-vf', f"subtitles='{ass_path_escaped}'",
-                    '-c:v', video_encoding,
-                    '-preset', preset,
-                    '-crf', crf,
-                    '-c:a', audio_encoding,
-                    '-movflags', '+faststart',
-                    output_path
-                ]
-                
-                print(f"[DEBUG] FFmpeg command: {' '.join(cmd)}")
-                
-                self._process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True
-                )
-                
-                duration = self._get_video_duration(video_path)
-                stderr_output = []
-                
-                while True:
-                    if self._abort:
-                        self._process.kill()
-                        self.status = 'aborted'
-                        if callback:
-                            callback({'status': 'aborted'})
-                        return
-                    
-                    line = self._process.stderr.readline()
-                    if not line and self._process.poll() is not None:
-                        break
-                    
-                    stderr_output.append(line)
-                    
-                    if 'time=' in line and duration > 0:
-                        try:
-                            time_str = line.split('time=')[1].split()[0]
-                            current_time = self._parse_time(time_str)
-                            self.progress = min(100, int(current_time / duration * 100))
-                            if callback:
-                                callback({'status': 'processing', 'progress': self.progress})
-                        except:
-                            pass
-                
-                if self._process.returncode == 0:
-                    self.status = 'completed'
-                    self.output_path = output_path
-                    self.progress = 100
-                    if callback:
-                        callback({'status': 'completed', 'output_path': output_path})
-                else:
-                    self.status = 'error'
-                    self.error = 'FFmpeg 处理失败: ' + ''.join(stderr_output[-20:])
-                    if callback:
-                        callback({'status': 'error', 'error': self.error})
-                
-                os.unlink(ass_path)
-                
-            except Exception as e:
-                self.status = 'error'
-                self.error = str(e)
-                if callback:
-                    callback({'status': 'error', 'error': str(e)})
-        
-        thread = threading.Thread(target=_run)
-        thread.start()
-        return {'status': 'started'}
-    
-    def _get_video_duration(self, video_path):
+
+    def generate_hard_subtitle(self, video_path, subtitle_data, output_path, config):
+        """提交硬字幕烧录任务,立即返回 {task_id, status}。"""
+        task_id = self._create_job()
+        threading.Thread(
+            target=self._task_thread,
+            args=(task_id, video_path, subtitle_data, output_path, config),
+            daemon=True
+        ).start()
+        return {'task_id': task_id, 'status': 'started'}
+
+    def _task_thread(self, task_id, video_path, subtitle_data, output_path, config):
+        ass_path = None
         try:
-            ffprobe = self.get_ffmpeg_path().replace('ffmpeg', 'ffprobe')
-            result = subprocess.run(
-                [ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', video_path],
-                capture_output=True,
-                text=True
-            )
-            return float(result.stdout.strip())
-        except:
-            return 0
-    
-    def _parse_time(self, time_str):
-        parts = time_str.split(':')
-        hours = int(parts[0])
-        minutes = int(parts[1])
-        seconds = float(parts[2])
-        return hours * 3600 + minutes * 60 + seconds
-    
-    def abort(self):
-        self._abort = True
-    
-    def get_status(self):
-        return {
-            'status': self.status,
-            'progress': self.progress,
-            'error': self.error,
-            'output_path': self.output_path
-        }
+            if not subtitle_data:
+                self._update(task_id, status='error', error='字幕内容为空')
+                return
+
+            ass_path = os.path.join(get_temp_dir(), f"{uuid.uuid4()}.ass")
+            with open(ass_path, 'w', encoding='utf-8') as ass_file:
+                ass_file.write(self.generate_ass_file(subtitle_data, config.get('style', {}), ass_path))
+
+            video_encoding = config.get('video_encoding', 'libx264')
+            preset = config.get('preset', 'medium')
+            crf = str(config.get('crf', 23))
+            audio_encoding = config.get('audio_encoding', 'copy')
+
+            # Windows 盘符冒号需要转义,路径分隔符统一为 /
+            ass_path_escaped = ass_path.replace('\\', '/').replace(':', '\\:')
+
+            cmd = [
+                self.get_ffmpeg_path(),
+                '-y',
+                '-i', video_path,
+                '-vf', f"subtitles='{ass_path_escaped}'",
+                '-c:v', video_encoding,
+                '-preset', preset,
+                '-crf', crf,
+                '-c:a', audio_encoding,
+                '-movflags', '+faststart',
+                output_path
+            ]
+
+            duration = self._get_media_duration(video_path)
+            self._execute(task_id, cmd, duration, output_path)
+        except Exception as e:
+            logger.exception('硬字幕任务 %s 失败', task_id)
+            self._update(task_id, status='error', error=str(e))
+        finally:
+            if ass_path:
+                try:
+                    os.unlink(ass_path)
+                except OSError:
+                    pass
 
 
 hard_subtitle_service = HardSubtitleService()
