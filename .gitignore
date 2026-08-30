@@ -1,27 +1,52 @@
+# ---- 运行时产物 / 模型缓存（体积大，不入库）----
 Temp/
-.codebuddy/
-Spark-TTS/tts_test.srt
 models/
 model/
 export/
 logs/
-frontend-v2/
 Dictionaries/
+OriginalSubtitle/
+translatesubtitles/
+audio/
+
+# ---- TTS 引擎内的模型与示例数据 ----
 Spark-TTS/example/
 Spark-TTS/pretrained_models/
 Spark-TTS/speech/
 Spark-TTS/test/
 Qwen3-TTS/examples/
 Qwen3-TTS/Qwen3-TTS-12Hz-1.7B-Base
+
+# ---- Python ----
 *.pyc
 __pycache__/
-node_modules/
-dist/
 .venv/
 venv/
 *.egg-info/
+
+# ---- Node / 前端 ----
+node_modules/
+dist/
+
+# ---- 本地 IDE / 编辑器 ----
 .idea/
 .vscode/
+.codebuddy/
+.trae/
+.trae-cn/
+
+# ---- 环境密钥（.env.example 之外的本地配置）----
+.env
+.env.*
+!/.env.example
+!frontend/.env.example
+frontend/.env.development
+frontend/.env.production
+
+# ---- 系统杂项 ----
 *.log
 .DS_Store
 Thumbs.db
+
+# ---- 私人材料（论文等，不进公开仓库）----
+thesis/

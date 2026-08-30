@@ -1,284 +1,242 @@
+<div align="center">
+
+![Banner](docs/assets/banner.jpg)
+
 # Subtitle Tool
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Vue 3](https://img.shields.io/badge/vue-3.4+-green.svg)](https://vuejs.org/)
 [![Electron](https://img.shields.io/badge/electron-31+-blue.svg)](https://www.electronjs.org/)
 
-一款功能强大的字幕编辑与处理工具，支持字幕编辑、翻译、语音识别、配音生成、硬字幕嵌入等功能。
+**English** | [简体中文](README.zh-CN.md)
 
-## 功能特性
+A powerful local subtitle editing and processing tool supporting subtitle editing, speech recognition, translation, dubbing generation, and hard-subtitle embedding. Built with a **Vue 3 + Electron** desktop frontend and a **Flask** local backend — speech recognition and synthesis run entirely on your machine, your data stays local.
 
-### 字幕编辑
-- 支持 SRT、VTT、ASS、SSA 等多种字幕格式
-- 实时预览与编辑
-- 撤销/重做操作
-- 查找替换、多重替换
-- 转到指定字幕编号
-- 拼写检查（基于 LLM）
+</div>
 
-### 语音识别
-- 基于 OpenAI Whisper 的语音识别
-- 支持 GPU 加速
-- 自动语言检测
-- 多种模型选择（tiny/base/small/medium/large）
-- 临时文件自动清理：转写结束（完成/失败/取消）后删除上传副本，后台每 6 小时清理一次 >24h 的过期临时文件，不会在 `Temp/transcription` 目录残留原始视频
+## Features
 
-### 字幕翻译
-- 支持多种翻译引擎：Ollama（本地模型）、DeepSeek、阿里百炼（DashScope），以及后端兼容的 DeepL / Google / ChatGPT / Anthropic / Gemini / Mistral / LibreTranslate
-- **Ollama 免 Key**（需本地运行 Ollama 服务）；**DeepSeek / 阿里百炼 在翻译窗口直接填写 API Key**，Key 按引擎本地持久化
-- 云端引擎模型名可自由输入（除常用预设外，支持任意自定义模型，如 `deepseek-v3`、`qwen3-max`）
-- 自定义提示词支持**视频时长软约束**（引导译文长度贴合原语音时长，非硬性字符限制）
-- 批量翻译、支持 LLM 翻译
+### Subtitle Editing
+- Import, edit, and export SRT, VTT, ASS, SSA and other subtitle formats
+- Undo/redo, find & replace, multi-step replacement, jump to subtitle number
+- LLM-based spell checking with custom dictionaries
+- Timeline overlap detection with one-click resolution, subtitle statistics panel
 
-### 智能处理
-- 长句智能分割
-- 句子合并
-- 重复词/重复行检测
+### Speech Recognition
+- Powered by OpenAI Whisper (openai-whisper / faster-whisper / whisper.cpp / whisper-ctranslate2)
+- GPU acceleration, automatic language detection, multiple models (tiny/base/small/medium/large)
+- Background tasks with progress reporting, cancellation, and automatic temp-file cleanup
 
-### 文本转语音（TTS）
-- **多引擎支持**：
-  - Spark-TTS：基于 Spark-TTS 的声音克隆
-  - Qwen3-TTS：基于 Qwen3-TTS 的声音克隆
-- **声音克隆**：使用参考音频克隆声音
-- **Qwen3-TTS 模式**：
-  - ICL (高质量)：克隆质量更高，需要参考文本
-  - xvec_only (快速)：速度更快，参考文本可选
-- **智能时间轴对齐**：
-  - 字幕批量生成配音（batch=4，GPU 吞吐约 4 倍）
-  - 自动静音间隙填充
-  - 音频过长：只挤压静音区间（延入后方静音、提前起始借用前方静音、顺延并由其他静音段吸收），**完全不变速**
-  - 音频过短：开头+结尾平分静音填充
-- 支持导入外部音频
+### Translation
+- Multi-engine support: Ollama (local, no API key), DeepSeek, Alibaba Bailian (DashScope), DeepL / Google / ChatGPT / Anthropic / Gemini / Mistral / LibreTranslate
+- Free-form model names for cloud engines; custom prompts with **soft video-duration constraints**
+- Batch translation with async tasks
 
-### 硬字幕生成
-- 视频硬字幕嵌入
-- 自定义字体、大小、颜色、描边
-- 字幕位置调整
-- 实时预览
+### Text-to-Speech (TTS)
+- Voice-cloning engines: **Spark-TTS** and **Qwen3-TTS** (ICL high-quality / xvec_only fast modes)
+- Smart timeline alignment: batch generation (batch=4), automatic silence trim/compress/pad, never changes playback speed
+- Import external audio as a reference voice
 
-### 波形显示
-- 视频/音频波形可视化
-- 字幕时间轴对齐
-- 缩放与拖拽
+### Hard Subtitles & Waveform
+- Hard-subtitle embedding with custom font, size, color, outline, and position
+- Video/audio waveform visualization, subtitle timeline alignment, zoom and drag
 
-## 技术栈
+## Quick Start
 
-### 后端
-- Python 3.12+
-- Flask - Web 框架
-- OpenAI Whisper - 语音识别
-- Spark-TTS / Qwen3-TTS - 语音合成
-- FFmpeg - 音视频处理、音频变速
+### Prerequisites
 
-### 前端
-- Vue 3 - 前端框架
-- Element Plus - UI 组件库
-- Pinia - 状态管理
-- Vite - 构建工具
-- Electron - 桌面应用
+- Python 3.12+ (backend)
+- Node.js 18+ (frontend build)
+- FFmpeg (must be on system PATH)
+- _Optional_ CUDA GPU — for Whisper / TTS acceleration
+- _Optional_ Ollama service — for the local translation engine
 
-## 项目结构
-
-```
-subtitle_tool/
-├── backend/                 # 后端代码
-│   ├── config/             # 配置文件
-│   ├── routes/             # API 路由
-│   ├── services/           # 业务逻辑
-│   │   └── spark_tts_service.py  # TTS 服务
-│   └── utils/              # 工具函数
-├── frontend/               # 前端代码
-│   ├── src/
-│   │   ├── components/    # Vue 组件
-│   │   │   └── TtsPanel.vue  # TTS 面板
-│   │   ├── stores/        # 状态管理
-│   │   ├── services/      # API 服务
-│   │   └── views/         # 页面视图
-│   └── electron/          # Electron 配置
-├── Spark-TTS/              # Spark-TTS 引擎
-│   ├── cli/               # 命令行工具
-│   ├── sparktts/          # 核心模块
-│   ├── srt_dubbing.py     # 字幕配音脚本
-│   └── pretrained_models/ # 模型文件
-├── Qwen3-TTS/              # Qwen3-TTS 引擎
-│   ├── qwen_tts/          # 核心模块
-│   ├── srt_dubbing_qwen.py # 字幕配音脚本
-│   └── Qwen3-TTS-12Hz-1.7B-Base/ # 模型文件
-├── Release/                # Whisper.cpp 发布版本
-├── Temp/                   # 临时文件目录
-├── app.py                  # Flask 应用入口
-└── requirements.txt        # Python 依赖
-```
-
-## 安装说明
-
-### 环境要求
-- Python 3.12+
-- Node.js 18+
-- FFmpeg（需添加到系统 PATH）
-- CUDA（可选，用于 GPU 加速）
-
-### 后端安装
+### Installation
 
 ```bash
-# 安装 Python 依赖
-pip install -r requirements.txt
+# Option 1: install all dependencies at once (from the repo root)
+npm run install:all
 
-# 安装 PyTorch (CUDA 版本)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Option 2: step by step
+pip install -r requirements.txt          # backend Python dependencies
+cd frontend && npm install               # frontend dependencies
+```
 
-# 下载 Spark-TTS 模型
+> For reproducible installs, use the lockfile: `pip install -r requirements.lock.txt`.
+
+Download TTS models (optional, only if you use TTS):
+
+```bash
+# Spark-TTS model
 cd Spark-TTS
 python -c "from huggingface_hub import snapshot_download; snapshot_download('SparkAudio/Spark-TTS-0.5B', local_dir='pretrained_models/Spark-TTS-0.5B')"
 
-# 下载 Qwen3-TTS 模型（可选）
+# Qwen3-TTS model
 cd ../Qwen3-TTS
 python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-1.7B-Base', local_dir='Qwen3-TTS-12Hz-1.7B-Base')"
 ```
 
-### 前端安装
+### Running
+
+Development mode (Electron desktop app + auto-started backend):
 
 ```bash
-cd frontend
-npm install
-```
-
-## 运行方式
-
-### 开发模式
-
-```bash
-# 启动后端
-python app.py
-
-# 启动前端开发服务器（新终端）
-cd frontend
 npm run dev
-
-# 启动 Electron 应用
-npm run electron:dev
+# or step by step:
+python app.py                # terminal 1: Flask backend (http://127.0.0.1:5000)
+cd frontend && npm run dev   # terminal 2: Vite dev server
+cd frontend && npm run electron:dev   # terminal 3: Electron (dev mode)
 ```
 
-### 生产模式
+Browser-only mode (no Electron):
 
 ```bash
-# 构建前端
-cd frontend
-npm run build
-
-# 启动后端服务
 python app.py
+cd frontend && npm run dev
+# open the Vite dev server URL in your browser
 ```
 
-## API 接口
+## Project Structure
 
-### 语音识别
-- `POST /api/transcribe` - 上传文件进行语音识别
-- `GET /api/transcribe/status` - 获取识别状态
-- `GET /api/transcribe/result` - 获取识别结果
+```
+subtitle_tool/
+├── backend/                 # Flask backend
+│   ├── config/              # Settings (port, upload limit, model dirs, ...)
+│   ├── routes/              # API routes (Blueprint)
+│   ├── services/            # Business logic (recognition/translation/TTS/hard-subtitle)
+│   └── utils/               # Utilities (unified responses, logging, temp cleanup)
+├── frontend/                # Vue 3 + Electron frontend
+│   ├── src/
+│   │   ├── components/      # Components (incl. modals/ feature dialogs)
+│   │   ├── stores/          # Pinia state management
+│   │   ├── services/        # API service wrappers
+│   │   └── utils/           # Utilities (runtime/storage)
+│   ├── electron/            # Electron main process and preload
+│   └── tests/               # Unit tests (Vitest)
+├── Spark-TTS/               # Spark-TTS engine (with pretrained models)
+├── Qwen3-TTS/               # Qwen3-TTS engine
+├── Release/                 # Whisper.cpp release binaries (whisper-cli, etc.)
+├── Temp/                    # Runtime temp files (auto-cleaned)
+├── app.py                   # Flask application entry
+├── .env.example             # Environment variable example (see Configuration)
+├── requirements.txt         # Python dependencies (loose lower bounds)
+└── requirements.lock.txt    # Python dependencies (reproducible lock)
+```
 
-### 翻译
-- `POST /api/translate` - 翻译文本
+## Common Commands
 
-### 拼写检查
-- `POST /api/spell-check/ai` - AI 拼写检查
+```bash
+npm run install:all                 # install all frontend + backend dependencies
+npm run dev                         # dev mode (Electron + backend)
+python app.py                       # start the Flask backend
+npm run electron:build              # build and package the desktop app (electron-builder)
+cd frontend && npm test             # frontend unit tests (Vitest)
+cd frontend && npm run lint         # ESLint check (Vue/JS)
+```
 
-### TTS 配音
-- `GET /api/tts/engines` - 获取可用 TTS 引擎列表
-- `GET /api/tts/reference-audios` - 获取参考音频列表
-- `POST /api/tts/upload-reference` - 上传参考音频
-- `DELETE /api/tts/reference-audio/<filename>` - 删除参考音频
-- `POST /api/tts/generate-subtitles` - 生成字幕配音
-- `GET /api/tts/status` - 获取生成状态
-- `GET /api/tts/result` - 获取生成结果
-- `GET /api/tts/download/<filename>` - 下载音频文件
+> Command sources: `scripts` fields of the root and `frontend/package.json`.
 
-### 波形生成
-- `POST /api/waveform/generate` - 上传文件生成波形
-- `POST /api/waveform/generate-from-path` - 根据文件路径生成波形
+## Configuration
 
-### 硬字幕
-- `POST /api/hard-subtitle/generate` - 生成硬字幕视频
-- `POST /api/hard-subtitle/generate-from-path` - 根据文件路径生成硬字幕
+> A complete example of all environment variables is in [`.env.example`](.env.example) at the repo root; the table below lists the main ones.
 
-## 配置说明
+### Backend Environment Variables
 
-### Whisper 模型配置
-支持以下模型：
-- `tiny` - 最快，准确率较低
-- `base` - 平衡速度和准确率
-- `small` - 推荐使用
-- `medium` - 更高准确率
-- `large` - 最高准确率，需要更多资源
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SUBTITLE_TOOL_BACKEND_PORT` | No | `5000` | Backend service port |
+| `SUBTITLE_TOOL_BACKEND_DEBUG` | No | `0` | Set to `1` to enable Flask debug mode |
+| `TRANSLATION_DURATION_CONSTRAINT_ENABLED` | No | `true` | Soft video-duration constraint for translation (`false`/`0` disables) |
+| `DEEPSEEK_API_KEY` | No | — | DeepSeek translation engine key (can also be entered in the translation dialog) |
+| `DASHSCOPE_API_KEY` / `BAILIAN_API_KEY` | No | — | Alibaba Bailian translation engine key |
 
-### TTS 配音配置
-- `engine`: TTS 引擎（spark-tts / qwen3-tts）
-- `mode`: Qwen3-TTS 模式（icl / xvec_only）
-- `prompt_speech_path`: 参考音频路径（用于声音克隆）
-- `prompt_text`: 参考音频对应文本（可选）
+### Frontend Environment Variables (`frontend/.env*`)
 
-### 翻译引擎配置
-- **Ollama**：本地大模型，无需 Key（需本地运行 Ollama 服务）
-- **DeepSeek**：在翻译窗口填写 API Key（也可设环境变量 `DEEPSEEK_API_KEY`）；默认模型 `deepseek-chat`，可选 `deepseek-reasoner`
-- **阿里百炼（DashScope）**：在翻译窗口填写 API Key（也可设环境变量 `DASHSCOPE_API_KEY` / `BAILIAN_API_KEY`）；默认模型 `qwen-plus`，可选 `qwen-turbo` / `qwen-max` / `qwen-flash`
-- 后端还兼容 **DeepL / Google / ChatGPT / Anthropic / Gemini / Mistral / LibreTranslate**，配置对应环境变量 Key 后可由 API 调用（界面默认仅暴露 Ollama / DeepSeek / 阿里百炼）
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_BASE_URL` | Backend API URL (dev default `http://localhost:5000`, empty in production and injected by Electron) |
+| `VITE_APP_TITLE` | Application title |
 
-### 时间轴对齐算法
+### Feature Configuration (in the UI)
 
-配音生成采用以下步骤确保时间轴对齐（优先挤压静音区间，完全不变速）：
+- **Whisper models**: tiny / base / small / medium / large
+- **TTS engines**: spark-tts / qwen3-tts; Qwen3 modes: icl / xvec_only
+- **Translation engines**: Ollama / DeepSeek / Alibaba Bailian, managed in Settings and the translation dialog
 
-1. **批量生成**：每批 4 条字幕同时生成配音（摊薄逐 token GPU 调度开销，实测约 4 倍吞吐；
-   批量失败自动回退逐段生成；单段失败保持静音不影响其他段）
-2. **静音裁剪**：裁剪配音首尾静音，尽量压缩时长
-3. **静音挤压放置**（音频过长时依次采用）：
-   ```
-   - 延入后方静音区间（本字幕结束 → 下一字幕开始的间隙）
-   - 后方静音不足：提前起始借用前方静音（最多 1000ms）
-   - 仍不足：顺延放置，占用下一字幕时段，
-     漂移由时间轴上其他静音段逐步吸收，大间隙处自动恢复同步
-   ```
-4. **静音填充**：音频过短时开头+结尾平分静音填充，间隙插入静音保持时间轴连续
-5. **整体压回视频长度**：合成完成后，若配音总长超过视频长度（ffprobe 获取），
-   按配音时长/视频时长计算倍速，整条配音 `atempo` 加速压回视频长度
-   （变速不变调，接受任意小数倍速；超出不足 1% 时忽略）
-6. **拼接输出**：将所有片段拼接为完整配音文件
+## API Overview
 
-## 常见问题
+Unified response structure: `{ success, data, error_code, message }`. All endpoints are prefixed with `/api` and only accept localhost and `app://` origins.
 
-### CUDA 内存不足
-- 使用较小的 Whisper 模型
-- 减小 batch size
-- 使用 CPU 模式
+| Module | Endpoints |
+|--------|-----------|
+| Speech recognition | `POST /transcribe`, `GET /transcribe/<task_id>`, `GET /transcribe/<task_id>/result`, `GET /transcribe/<task_id>/events` (SSE), `POST /transcribe/<task_id>/cancel` |
+| Whisper models | `GET /whisper/list`, `GET /whisper/downloaded`, `POST /whisper/download`, `GET /whisper/status`; same structure for whisper-cpp / whisper-ctranslate2 |
+| Vosk | `GET /vosk/list`, `POST /vosk/download`, `GET /vosk/status` |
+| Translation | `POST /translation/async`, `GET /translation/status`, `GET /translation/result` |
+| Spell check | `POST /spell-check/ai`, `POST /spell-check/suggestions`, dictionary/name CRUD |
+| TTS dubbing | `GET /tts/engines`, `POST /tts/generate-subtitles`, `GET /tts/status`, `GET /tts/result`, `POST /tts/abort`, `GET /tts/download/<filename>`; voices: `GET /tts/voices`, `POST /tts/upload-voice`, `DELETE /tts/delete-voice/<filename>` |
+| TTS video synthesis | `POST /tts-video/generate`, `GET /tts-video/status`, `POST /tts-video/abort`, `GET /tts-video/download` |
+| Hard subtitles | `POST /hard-subtitle/generate`, `POST /hard-subtitle/generate-from-path`, `GET /hard-subtitle/status`, `POST /hard-subtitle/abort`, `GET /hard-subtitle/download` |
+| Waveform | `POST /waveform/generate`, `POST /waveform/generate-from-path` |
+| Video | `GET /video/serve?path=<path>` (local file serving) |
+| Subtitle persistence | `POST /subtitle/save-original`, `POST /subtitle/save-translation`, `POST /subtitle/auto-save` |
+| System | `GET /settings/health`, `GET /settings/version`, `GET /settings/diagnostics`, cache stats and cleanup, `POST /settings/open-directory`, `POST /settings/open-logs` |
 
-### 音频生成失败
-- 检查 TTS 模型是否正确安装
-- 确保有足够的磁盘空间
-- 查看后端日志获取详细错误信息
+## Testing & Quality
 
-### 字幕时间轴不对齐
-- 使用分割长句功能优化字幕
-- 手动调整字幕时间
-- 查看后端日志：配音超长时会记录静音区间借用与顺延情况
+```bash
+cd frontend && npm test    # Vitest unit tests (tests/)
+cd frontend && npm run lint
+```
 
-### FFmpeg 未找到
-- 确保 FFmpeg 已安装并添加到系统 PATH
-- Windows 用户可从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载
+Current unit tests cover core utilities such as subtitle format parsing/serialization (`frontend/tests/subtitle-formats.test.js`). The backend has no automated tests yet and relies on manual API integration checks.
 
-## 许可证
+## Packaging
+
+```bash
+cd frontend && npm run electron:build   # vite build + electron-builder
+```
+
+electron-builder config (`build` field in `frontend/package.json`): Windows NSIS installer, macOS DMG, Linux AppImage; registers the `.stproj` project file association.
+
+## FAQ
+
+### CUDA out of memory
+- Use a smaller Whisper model; reduce batch size; or run on CPU.
+
+### Audio generation fails
+- Check that TTS models are installed correctly; make sure disk space is sufficient; check backend logs for details.
+
+### Subtitle timeline misaligned
+- Use the "split long lines" feature; adjust subtitle timing manually; when dubbing overruns, backend logs record silence borrowing and shifting.
+
+### FFmpeg not found
+- Make sure FFmpeg is installed and on your system PATH (on Windows, download from [ffmpeg.org](https://ffmpeg.org/download.html)).
+
+## Disclaimer
+
+- This tool is provided **as is** for personal learning and research, without warranty of any kind. See the [MIT License](LICENSE).
+- Speech recognition, synthesis, and translation are powered by AI models; output may be inaccurate. **Always review generated subtitles, translations, and dubbing before use.**
+- Speech recognition, TTS, and the Ollama translation engine run locally. **Cloud translation engines (DeepSeek, Bailian, DeepL, Google, ChatGPT, etc.) send your subtitle text to third-party services** — do not use them for confidential or sensitive content.
+- Users are responsible for obtaining the necessary rights for the source videos, audio, and reference voices they process. Comply with the copyright laws and the terms of service of the models and APIs you use; the authors are not liable for any misuse.
+
+## Documentation Maintenance
+
+Update this document when:
+- API routes are added or renamed (`backend/routes/`)
+- Environment variables or configuration change (`backend/config/settings.py`, `frontend/.env*`)
+- Backend/frontend script commands are added or removed (root and `frontend/package.json`)
+- The project directory structure changes
+
+## License
 
 [MIT License](LICENSE)
 
-## 贡献
+## Acknowledgements
 
-欢迎提交 Issue 和 Pull Request。
-
-## 致谢
-
-- [OpenAI Whisper](https://github.com/openai/whisper) - 语音识别
-- [Spark-TTS](https://github.com/SparkAudio/Spark-TTS) - 语音合成
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) - 语音合成
-- [Vue.js](https://vuejs.org/) - 前端框架
-- [Element Plus](https://element-plus.org/) - UI 组件库
-- [Electron](https://www.electronjs.org/) - 桌面应用框架
-- [FFmpeg](https://ffmpeg.org/) - 音视频处理
+- [OpenAI Whisper](https://github.com/openai/whisper) · [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — speech recognition
+- [Spark-TTS](https://github.com/SparkAudio/Spark-TTS) — speech synthesis
+- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) — speech synthesis
+- [Vue.js](https://vuejs.org/) · [Element Plus](https://element-plus.org/) · [Electron](https://www.electronjs.org/) — frontend framework
+- [FFmpeg](https://ffmpeg.org/) — audio/video processing
