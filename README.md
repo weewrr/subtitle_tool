@@ -11,7 +11,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A powerful local subtitle editing and processing tool supporting subtitle editing, speech recognition, translation, dubbing generation, and hard-subtitle embedding. Built with a **Vue 3 + Electron** desktop frontend and a **Flask** local backend — speech recognition and synthesis run entirely on your machine, your data stays local.
+A powerful subtitle editing and processing tool supporting subtitle editing, translation, speech recognition, dubbing generation, and hard-subtitle embedding. Built with **Vue 3 + Electron + Flask + Whisper + Spark-TTS**.
 
 </div>
 
